@@ -47,7 +47,7 @@ Each milestone ends with a green `cargo test` and a usable binary. No milestone 
 ## M6 — Code intelligence
 - [x] LSP manager: spawn per-project servers on demand, diagnostics after edits (built-ins for Rust, TypeScript, Python, Go, C/C++).
 - [x] MCP client: stdio + streamable HTTP; tools registered as `mcp__<server>__<tool>`.
-- [ ] Formatter hooks (rustfmt/prettier/biome) after writes, opt-in.
+- [x] Formatter hooks (rustfmt/gofmt/ruff/prettier/biome) after writes, opt-in.
 - **Exit:** diagnostics appear in tool results; an MCP filesystem server's tool is callable. ✅ (LSP and MCP verified against protocol-accurate mock servers; real servers use the same code path)
 
 ## M7 — Sessions at scale

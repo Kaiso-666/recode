@@ -154,6 +154,20 @@ pub struct LspServerConfig {
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct FormatterConfig {
+    /// Executable and arguments; the file path is appended.
+    #[serde(default)]
+    pub command: Vec<String>,
+    /// File extensions handled by the formatter, e.g. `[".rs"]`.
+    #[serde(default)]
+    pub extensions: Vec<String>,
+    /// Formatters are opt-in: absent means disabled.
+    #[serde(default)]
+    pub enabled: bool,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AgentConfig {
     #[serde(default)]
     pub description: String,
@@ -292,6 +306,9 @@ pub struct Config {
     /// python, go and clang; entries here override or disable them.
     #[serde(default)]
     pub lsp: IndexMap<String, LspServerConfig>,
+    /// Optional post-edit formatters. Built-ins are disabled until enabled.
+    #[serde(default)]
+    pub formatter: IndexMap<String, FormatterConfig>,
     #[serde(default)]
     pub disabled_providers: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -332,6 +349,7 @@ impl Default for Config {
             instructions: Vec::new(),
             mcp: IndexMap::new(),
             lsp: IndexMap::new(),
+            formatter: IndexMap::new(),
             disabled_providers: Vec::new(),
             autoupdate: None,
             snapshot: None,
@@ -436,6 +454,7 @@ impl Config {
         }
         self.mcp.extend(other.mcp);
         self.lsp.extend(other.lsp);
+        self.formatter.extend(other.formatter);
         for provider in other.disabled_providers {
             if !self.disabled_providers.contains(&provider) {
                 self.disabled_providers.push(provider);

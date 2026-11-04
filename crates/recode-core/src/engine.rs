@@ -48,6 +48,7 @@ pub struct Engine {
     pub snapshots: Arc<crate::snapshot::SnapshotService>,
     pub lsp: Arc<crate::lsp::LspManager>,
     pub mcp: Arc<crate::mcp::McpManager>,
+    pub formatters: Arc<crate::formatter::FormatterService>,
     pub bus: broadcast::Sender<LiveEvent>,
     runs: parking_lot::Mutex<HashMap<SessionId, ActiveRun>>,
 }
@@ -115,6 +116,10 @@ impl Engine {
         ));
         let lsp = Arc::new(crate::lsp::LspManager::new(&config, project.root.clone()));
         let mcp = Arc::new(crate::mcp::McpManager::new(&config, project.root.clone()));
+        let formatters = Arc::new(crate::formatter::FormatterService::new(
+            &config,
+            project.root.clone(),
+        ));
         Ok(Arc::new(Self {
             store,
             config,
@@ -127,6 +132,7 @@ impl Engine {
             snapshots,
             lsp,
             mcp,
+            formatters,
             bus,
             runs: parking_lot::Mutex::new(HashMap::new()),
         }))

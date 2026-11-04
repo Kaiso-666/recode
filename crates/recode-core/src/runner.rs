@@ -865,6 +865,9 @@ async fn execute_call(
                 let _ = emit_part(engine, session_id, message_id, part);
             }
             let changed = changed_paths(metadata.as_ref());
+            if !changed.is_empty() {
+                engine.formatters.format(&changed).await;
+            }
             let diagnostics = if changed.is_empty() {
                 String::new()
             } else {

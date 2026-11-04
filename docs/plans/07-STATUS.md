@@ -4,10 +4,10 @@ Last updated: 2026-11-04 (verified build)
 
 ## Current state
 
-**Phase:** M2–M5 and M7 complete; M6 LSP/MCP complete (formatter hooks remain).
+**Phase:** M2–M7 complete; M5 attach mode and M8 polishing remain.
 
 ```
-cargo test --workspace       87 passed, 0 failed
+cargo test --workspace       88 passed, 0 failed
 cargo clippy --workspace --all-targets -- -D warnings   clean
 cargo fmt --all --check       clean
 ```
@@ -22,7 +22,7 @@ cargo fmt --all --check       clean
 | M3 config/agents | ✅ done | JSONC (+BOM), JSONC merge, 4 built-in agents, AGENTS.md/CLAUDE.md, auth store |
 | M4 TUI | ✅ verified | transcript, streaming markdown-lite, editor, pickers, permission modal, todo strip — driven in a real ConPTY (`script/tui_smoke.py`), including the approval modal |
 | M5 server | ✅ core | axum API + SSE verified with curl; bearer auth; permission broker (`GET /api/permissions`, `POST /api/permissions/{id}`) verified end to end |
-| M6 LSP/MCP | ✅ done | on-demand LSP diagnostics in tool results; MCP stdio + streamable HTTP tools (`mcp__*`); formatter hooks pending |
+| M6 LSP/MCP | ✅ done | on-demand LSP diagnostics in tool results; MCP stdio + streamable HTTP tools (`mcp__*`); opt-in formatter hooks |
 | M7 sessions at scale | ✅ done | compaction; fork/revert; shadow-git snapshots + file restore; patch tracking; JSON/Markdown export |
 | M8 polish | ⬜ missing | — |
 
@@ -65,15 +65,16 @@ cargo fmt --all --check       clean
   (`script/mock_mcp.py` and an in-test HTTP server). The model calls
   `mcp__mock__echo`, the registry routes it to the server, and the echoed text is
   persisted in the tool part (`tests/mcp.rs`).
+- Formatters: an opt-in formatter command runs after a successful edit and rewrites the
+  file (unit test with a Python one-liner); built-ins stay disabled until enabled.
 - `config show` redacts credentials; `config rebuild` replays the event log.
 
 ## Next actions (in order)
 
-1. Formatter hooks (M6 remainder): opt-in rustfmt/prettier/biome after edits.
-2. TUI polish: `@file` completion, session search, scrollback paging.
-3. Add `recode run --format json` streaming (currently final transcript only).
-4. M5 remainder: TUI/CLI `--server` attach mode.
-5. Release plumbing: installer, shell completions, benchmarks.
+1. TUI polish: `@file` completion, session search, scrollback paging.
+2. Add `recode run --format json` streaming (currently final transcript only).
+3. M5 remainder: TUI/CLI `--server` attach mode.
+4. Release plumbing: installer, shell completions, benchmarks.
 
 ## Known issues / gotchas
 
@@ -121,6 +122,10 @@ cargo fmt --all --check       clean
   chars), use permission key `mcp` (default ask), and are visible to agent allowlists
   unless `"mcp": false` is set. Local transport is line-delimited JSON-RPC; remote uses
   POST + `Mcp-Session-Id`. Only tools are bridged (resources/prompts are not yet).
+- **Formatters:** disabled by default; enable by key under `formatter`
+  (`{"rustfmt": {"enabled": true}}`). The file path is appended as the last argument and
+  commands time out after 15 s. Missing binaries are remembered for the process.
+  Formatting runs before LSP diagnostics, so diagnostics reflect the formatted file.
 
 ## Architecture notes
 

@@ -7,6 +7,7 @@ pub mod auth;
 pub mod compaction;
 pub mod config;
 pub mod engine;
+pub mod formatter;
 pub mod instructions;
 pub mod jsonc;
 pub mod lsp;
