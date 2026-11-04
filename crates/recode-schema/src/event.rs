@@ -124,6 +124,15 @@ pub enum Event {
         request_id: String,
         reply: PermissionReply,
     },
+    /// Older history was summarized. `through` is the last message included in
+    /// the summary; only messages after it are sent to the model verbatim.
+    SessionCompacted {
+        session_id: SessionId,
+        summary: String,
+        through: MessageId,
+        tokens_before: u64,
+        tokens_after: u64,
+    },
 }
 
 impl Event {
@@ -137,7 +146,8 @@ impl Event {
             | Event::PartDelta { session_id, .. }
             | Event::PartRemoved { session_id, .. }
             | Event::SessionIdle { session_id }
-            | Event::SessionError { session_id, .. } => session_id,
+            | Event::SessionError { session_id, .. }
+            | Event::SessionCompacted { session_id, .. } => session_id,
             Event::MessageAdded { message } => &message.session_id,
             Event::PermissionAsked { request } => &request.session_id,
             Event::PermissionReplied { session_id, .. } => session_id,

@@ -28,7 +28,7 @@ pub async fn run(args: RunArgs) -> anyhow::Result<()> {
     let engine = Engine::new(EngineOptions {
         paths,
         directory,
-        responder,
+        responder: Some(responder),
     })
     .map_err(anyhow::Error::msg)?;
 

@@ -9,6 +9,7 @@ mod fs;
 mod glob;
 mod grep;
 mod read;
+mod task;
 pub mod todo;
 mod webfetch;
 mod write;
@@ -28,6 +29,18 @@ use tokio_util::sync::CancellationToken;
 
 pub const MAX_TOOL_OUTPUT: usize = 200_000;
 
+/// Lets the `task` tool run a child session through the engine without the
+/// tool crate depending on core.
+#[async_trait]
+pub trait SubagentRunner: Send + Sync {
+    async fn run(
+        &self,
+        description: String,
+        prompt: String,
+        agent: Option<String>,
+    ) -> Result<String, ToolFailure>;
+}
+
 #[derive(Clone)]
 pub struct ToolContext {
     pub session_id: SessionId,
@@ -40,6 +53,8 @@ pub struct ToolContext {
     pub abort: CancellationToken,
     /// Optional streaming progress sink for long-running tools.
     pub progress: Option<ProgressFn>,
+    /// Set for agents that are allowed to delegate to a child session.
+    pub subagent: Option<Arc<dyn SubagentRunner>>,
 }
 
 impl ToolContext {
@@ -57,6 +72,7 @@ impl ToolContext {
             allow_outside: false,
             abort: CancellationToken::new(),
             progress: None,
+            subagent: None,
         }
     }
 
@@ -148,6 +164,7 @@ impl ToolRegistry {
         registry.register(Arc::new(fs::LsTool));
         registry.register(Arc::new(glob::GlobTool));
         registry.register(Arc::new(grep::GrepTool));
+        registry.register(Arc::new(task::TaskTool));
         registry.register(Arc::new(todo::TodoTool));
         registry.register(Arc::new(webfetch::WebFetchTool));
         registry

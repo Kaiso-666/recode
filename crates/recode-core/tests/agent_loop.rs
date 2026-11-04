@@ -97,7 +97,7 @@ async fn agent_runs_a_tool_loop_and_persists_the_transcript() {
     let engine = Engine::new(EngineOptions {
         paths,
         directory: project,
-        responder: Arc::new(AutoApprove),
+        responder: Some(Arc::new(AutoApprove)),
     })
     .unwrap();
     let session = engine.create_session(None, None, None).unwrap();
@@ -168,7 +168,7 @@ async fn permission_denial_is_returned_to_the_model() {
     let engine = Engine::new(EngineOptions {
         paths,
         directory: project,
-        responder: Arc::new(AutoApprove),
+        responder: Some(Arc::new(AutoApprove)),
     })
     .unwrap();
     let session = engine.create_session(None, None, None).unwrap();

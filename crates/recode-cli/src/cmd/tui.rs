@@ -13,7 +13,7 @@ pub async fn run(args: TuiArgs) -> anyhow::Result<()> {
     let engine = Engine::new(EngineOptions {
         paths,
         directory,
-        responder: responder.clone(),
+        responder: Some(responder.clone()),
     })
     .map_err(anyhow::Error::msg)?;
     let session = match &args.session {

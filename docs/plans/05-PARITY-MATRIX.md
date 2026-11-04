@@ -6,13 +6,13 @@ Status legend: `missing` · `partial` · `done` · `n/a` (explicit non-goal)
 
 | opencode package | Re:Code crate/module | Status | Notes |
 |---|---|---|---|
-| `schema` | `recode-schema` | partial | Core message/part/tool/llm types first; v1/compat schemas skipped |
-| `core` | `recode-core` + `recode-tool` + `recode-storage` | partial | Runner, config, agents, permissions, LSP, MCP |
-| `ai` | `recode-provider` | partial | Canonical LLM events; anthropic/openai/gemini |
-| `server` | `recode-server` | missing | axum + SSE |
-| `cli` | `recode-cli` | partial | run/serve/tui/auth/models/sessions |
-| `tui` | `recode-tui` | missing | ratatui |
-| `protocol` | `recode-server::routes` | missing | Reimplement public HTTP surface, not exact |
+| `schema` | `recode-schema` | done | Core message/part/tool/llm/config types; v1/compat schemas intentionally skipped |
+| `core` | `recode-core` + `recode-tool` + `recode-storage` | partial | Runner, config, agents, permissions, compaction, subagents; LSP/MCP pending |
+| `ai` | `recode-provider` | partial | Canonical LLM events; anthropic/openai-compatible (Gemini via OpenAI endpoint) |
+| `server` | `recode-server` | partial | axum + SSE + permission broker; no editor clients yet |
+| `cli` | `recode-cli` | done | run/tui/serve/auth/models/sessions/config |
+| `tui` | `recode-tui` | partial | ratatui app verified in ConPTY; `@file`, search pending |
+| `protocol` | `recode-server::routes` | partial | Reimplemented public HTTP surface, not exact |
 | `client` | internal `EngineClient` | missing | Rust trait, no codegen |
 | `sdk` | n/a | n/a | No JS SDK in v1 |
 | `web`, `app`, `desktop`, `console`, `stats` | n/a | n/a | Out of scope |
@@ -24,14 +24,16 @@ Status legend: `missing` · `partial` · `done` · `n/a` (explicit non-goal)
 
 | Capability | opencode | Re:Code |
 |---|---|---|
-| Streaming text/reasoning | yes | planned (M1) |
-| Parallel tool calls | yes | planned (M2) |
-| Provider retry/failover | yes | planned (M1) |
-| Session persistence | SQLite | SQLite event store (M0) |
-| Resume / fork / revert | yes | M5/M7 |
-| Compaction | yes | M7 |
-| Permissions (allow/ask/deny) | yes | M2 |
-| AGENTS.md instructions | yes | M3 |
+| Streaming text/reasoning | yes | done |
+| Parallel tool calls | yes | done |
+| Provider retry/failover | yes | done (retry; no cross-provider failover yet) |
+| Session persistence | SQLite | SQLite event store (done) |
+| Resume a session | yes | done (`--session`, TUI picker) |
+| Fork / revert | yes | M7 |
+| Session compaction | yes | done (manual + automatic) |
+| Subagents (`task`) | yes | done (depth-limited child sessions) |
+| Permissions (allow/ask/deny) | yes | done (in-process + HTTP broker) |
+| AGENTS.md instructions | yes | done |
 | Custom agents | yes | M3 |
 | Custom commands | yes | M3 |
 | LSP diagnostics | yes | M6 |

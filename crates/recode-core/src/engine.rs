@@ -21,7 +21,9 @@ use tokio_util::sync::CancellationToken;
 pub struct EngineOptions {
     pub paths: RecodePaths,
     pub directory: PathBuf,
-    pub responder: Arc<dyn PermissionResponder>,
+    /// In-process approval bridge. `None` leaves approvals to the bus broker
+    /// (server mode), where a client replies over HTTP.
+    pub responder: Option<Arc<dyn PermissionResponder>>,
 }
 
 struct ActiveRun {
@@ -86,12 +88,13 @@ impl Engine {
         // Baseline protections. Explicit user rules are appended later and win.
         rules.push(recode_schema::permission::Rule::deny("edit", ".git/**"));
         rules.push(recode_schema::permission::Rule::deny("edit", "**/.git/**"));
+        let (bus, _) = broadcast::channel(2048);
         let permissions = Arc::new(crate::permission::PermissionService::new(
             rules,
             options.responder,
+            Some(bus.clone()),
             std::time::Duration::from_secs(300),
         ));
-        let (bus, _) = broadcast::channel(2048);
         Ok(Arc::new(Self {
             store,
             config,
@@ -212,6 +215,30 @@ impl Engine {
             .update_session(session)
             .map_err(|error| error.to_string())?;
         Ok(())
+    }
+
+    /// Summarize older history and persist a compaction event. The full
+    /// transcript stays readable; only the model-facing history is shortened.
+    pub async fn compact(
+        self: &Arc<Self>,
+        session_id: &SessionId,
+    ) -> Result<Option<recode_storage::CompactionRecord>, String> {
+        if self.is_busy(session_id) {
+            return Err("session is busy; wait for the current run to finish".into());
+        }
+        let session = self
+            .session(session_id)?
+            .ok_or_else(|| "session not found".to_owned())?;
+        let agent_id = session
+            .agent
+            .clone()
+            .unwrap_or_else(|| self.config.default_agent());
+        let model = match session.model.clone() {
+            Some(model) => model,
+            None => crate::engine::initial_model(self, self.agent(&agent_id))?,
+        };
+        let cancel = CancellationToken::new();
+        crate::compaction::compact_session(self, session_id, &model, &cancel).await
     }
 
     /// Admit a user prompt and start a run. Fails when the session is busy.

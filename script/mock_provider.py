@@ -2,20 +2,25 @@
 """Minimal OpenAI-compatible mock used for manual Re:Code smoke tests.
 
 Serves streaming chat completions on POST /v1/chat/completions:
-  request 1 -> tool call read(file_path="a.txt")
-  request 2 -> final text
-Then repeats the sequence.
+  normal turn 1 -> tool call read(file_path="a.txt")
+  normal turn 2 -> final text
+  summarizer   -> a canned compaction summary (does not advance the turn)
+
+Requests are optionally recorded with --log for debugging what the agent sent.
 
 Usage:
-  python script/mock_provider.py --port 18888
-  RECODE_CONFIG=... recode run "read a.txt" --auto
+  python script/mock_provider.py --port 18888 --log requests.jsonl
+  recode run "read a.txt" --auto
 """
 
 import argparse
 import json
+import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 COUNTER = {"n": 0}
+LOCK = threading.Lock()
+LOG_PATH = None
 
 
 def sse(payload):
@@ -30,12 +35,58 @@ class Handler(BaseHTTPRequestHandler):
         length = int(self.headers.get("content-length", "0"))
         body = self.rfile.read(length)
         request = json.loads(body or b"{}")
-        turn = COUNTER["n"] % 2
-        COUNTER["n"] += 1
+        system = request.get("system", "")
+        messages = request.get("messages", [])
+        if not system:
+            for message in messages:
+                if message.get("role") == "system":
+                    system = message.get("content", "")
+                    break
+        if isinstance(system, list):
+            system = " ".join(part.get("text", "") for part in system)
+        summarize = "context compactor" in system
+        if LOG_PATH:
+            with open(LOG_PATH, "a", encoding="utf-8") as log:
+                log.write(
+                    json.dumps(
+                        {
+                            "summarize": summarize,
+                            "messages": len(messages),
+                            "roles": [message.get("role") for message in messages],
+                            "first": str(messages[0].get("content"))[:120] if messages else "",
+                        }
+                    )
+                    + "\n"
+                )
+
         self.send_response(200)
         self.send_header("content-type", "text/event-stream")
         self.send_header("connection", "close")
         self.end_headers()
+
+        if summarize:
+            self.wfile.write(
+                sse(
+                    {
+                        "choices": [
+                            {
+                                "delta": {
+                                    "content": "SUMMARY: the user worked in a small project and read a.txt."
+                                },
+                                "finish_reason": "stop",
+                            }
+                        ]
+                    }
+                )
+            )
+            self.wfile.write(b"data: [DONE]\n\n")
+            self.wfile.flush()
+            return
+
+        with LOCK:
+            turn = COUNTER["n"] % 2
+            COUNTER["n"] += 1
+
         if turn == 0:
             self.wfile.write(
                 sse(
@@ -68,9 +119,7 @@ class Handler(BaseHTTPRequestHandler):
                 )
             )
         else:
-            text = "The file says: hello from the mock provider."
-            if "messages" in request and "tools" in request:
-                text = "Done. I read the file."
+            text = "Done. I read the file."
             self.wfile.write(
                 sse({"choices": [{"delta": {"content": text}, "finish_reason": "stop"}]})
             )
@@ -87,10 +136,13 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
+    global LOG_PATH
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=18888)
     parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--log")
     args = parser.parse_args()
+    LOG_PATH = args.log
     server = ThreadingHTTPServer((args.host, args.port), Handler)
     print(f"mock provider on http://{args.host}:{args.port}/v1", flush=True)
     server.serve_forever()

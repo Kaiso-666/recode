@@ -4,6 +4,7 @@
 
 pub mod agent;
 pub mod auth;
+pub mod compaction;
 pub mod config;
 pub mod engine;
 pub mod instructions;
@@ -14,6 +15,7 @@ pub mod project;
 pub mod prompt;
 pub mod providers;
 pub mod runner;
+pub mod subagent;
 
 pub use agent::{Agent, AgentMode, AgentRegistry};
 pub use config::ConfigManager;

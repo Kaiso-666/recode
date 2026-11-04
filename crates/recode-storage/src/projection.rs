@@ -9,7 +9,7 @@ fn json<T: Serialize>(value: &T) -> rusqlite::Result<String> {
 }
 
 /// Bump when projection semantics change; `migrate` rebuilds older databases.
-pub const SCHEMA_VERSION: u32 = 1;
+pub const SCHEMA_VERSION: u32 = 2;
 
 pub(crate) fn clear(conn: &Connection) -> rusqlite::Result<()> {
     conn.execute_batch(
@@ -17,6 +17,7 @@ pub(crate) fn clear(conn: &Connection) -> rusqlite::Result<()> {
          DELETE FROM message;
          DELETE FROM permission;
          DELETE FROM session_inbox;
+         DELETE FROM compaction;
          DELETE FROM session;",
     )
 }
@@ -213,6 +214,33 @@ pub(crate) fn apply(conn: &Connection, event: &Event) -> rusqlite::Result<()> {
             conn.execute(
                 "UPDATE permission SET reply = ?1 WHERE id = ?2",
                 params![json(reply)?, request_id],
+            )?;
+        }
+        Event::SessionCompacted {
+            session_id,
+            summary,
+            through,
+            tokens_before,
+            tokens_after,
+        } => {
+            conn.execute(
+                "INSERT INTO compaction
+                    (session_id, summary, through, tokens_before, tokens_after, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+                 ON CONFLICT(session_id) DO UPDATE SET
+                    summary = excluded.summary,
+                    through = excluded.through,
+                    tokens_before = excluded.tokens_before,
+                    tokens_after = excluded.tokens_after,
+                    created_at = excluded.created_at",
+                params![
+                    session_id.0,
+                    summary,
+                    through.0,
+                    tokens_before,
+                    tokens_after,
+                    recode_schema::now_ms(),
+                ],
             )?;
         }
     }

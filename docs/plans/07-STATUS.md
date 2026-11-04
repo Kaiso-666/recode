@@ -7,7 +7,7 @@ Last updated: 2026-11-04 (verified build)
 **Phase:** M3 complete, M4/M5 partial, all tests green.
 
 ```
-cargo test --workspace       60 passed, 0 failed
+cargo test --workspace       67 passed, 0 failed
 cargo clippy --workspace --all-targets -- -D warnings   clean
 cargo fmt --all --check       clean
 ```
@@ -18,12 +18,12 @@ cargo fmt --all --check       clean
 |---|---|---|
 | M0 foundation | ✅ done | 8 crates, CI, fmt/clippy, MIT attribution, `recode --version` |
 | M1 providers + loop | ✅ done | OpenAI + Anthropic SSE; 2 streaming integration tests; mock-provider E2E |
-| M2 tools | 🟡 11/12 | bash, read, write, edit, multi_edit, ls, glob, grep, webfetch, todowrite (patch/task/question missing) |
+| M2 tools | 🟡 12/13 | bash, read, write, edit, multi_edit, ls, glob, grep, webfetch, todowrite, task (subagent); patch/question missing |
 | M3 config/agents | ✅ done | JSONC (+BOM), JSONC merge, 4 built-in agents, AGENTS.md/CLAUDE.md, auth store |
-| M4 TUI | 🟡 written | transcript, streaming markdown-lite, editor, pickers, permission modal, todo strip — not yet hand-tested in a real terminal |
-| M5 server | 🟡 partial | axum API + SSE verified with curl; bearer auth; no permission reply endpoint |
+| M4 TUI | ✅ verified | transcript, streaming markdown-lite, editor, pickers, permission modal, todo strip — driven in a real ConPTY (`script/tui_smoke.py`), including the approval modal |
+| M5 server | ✅ core | axum API + SSE verified with curl; bearer auth; permission broker (`GET /api/permissions`, `POST /api/permissions/{id}`) verified end to end |
 | M6 LSP/MCP | ⬜ missing | — |
-| M7 sessions at scale | 🟡 export only | — |
+| M7 sessions at scale | 🟡 partial | manual + automatic compaction (durable `session.compacted`), JSON export; fork/revert/snapshots missing |
 | M8 polish | ⬜ missing | — |
 
 ### Verified end-to-end
@@ -33,18 +33,25 @@ cargo fmt --all --check       clean
 - `recode sessions list` / `sessions show` read the persisted transcript back.
 - `recode serve` + curl: `/health`, `/api/providers`, session create, prompt,
   `/messages`, and the SSE event stream all returned the expected payloads.
+- Permission broker: with no `--auto`, a prompt produced a pending request, the TUI modal
+  and the HTTP reply endpoint both approved it, and the tool completed.
+- TUI: `script/tui_smoke.py` drives the real binary in a ConPTY (via pywinpty), sends a
+  prompt, waits for the streamed reply, opens help, and quits; the permission variant also
+  approves the modal.
+- Compaction: `recode sessions compact <id>` writes a `session.compacted` event; a following
+  request contains the summary instead of the original tool transcript (integration test).
+- Subagents: a `task` tool call creates a child session, runs it to idle, and returns its
+  final answer to the parent (integration test).
 - `config show` redacts credentials; `config rebuild` replays the event log.
 
 ## Next actions (in order)
 
-1. Wire server-side permission replies: `permission.asked` on SSE + `POST /api/permissions/{id}`;
-   today `serve` only auto-approves (`--auto`) or rejects.
-2. Hand-test the TUI in Windows Terminal (resize, paste, permission modal, F2/F3/F4).
-3. Session compaction (`/compact`, auto at token budget) and fork/revert.
-4. `patch` tool and `task` subagent tool.
-5. LSP diagnostics manager (M6) then MCP client.
-6. Add `recode run --format json` event streaming (currently final transcript only).
-7. Release plumbing: `cargo dist`/installer, completions, benchmarks.
+1. `patch` tool (unified diffs) and a `question` tool for interactive clarification.
+2. Fork/revert and file snapshots (M7); then markdown share/export.
+3. LSP diagnostics manager (M6) then MCP client.
+4. TUI polish: `@file` completion, session search, scrollback paging.
+5. Add `recode run --format json` event streaming (currently final transcript only).
+6. Release plumbing: installer, shell completions, benchmarks.
 
 ## Known issues / gotchas
 
@@ -67,6 +74,10 @@ cargo fmt --all --check       clean
   fields). Harmless internally; normalize before publishing a wire protocol.
 - **DB is pre-1.0:** schema changes may require deleting `<data>/recode.db`. `config rebuild`
   reconstructs projections but not the event log itself.
+- **TUI testing:** `script/tui_smoke.py` needs `pywinpty` (installed for CPython 3.15) and a
+  running mock provider; it asserts on ANSI-stripped ConPTY output.
+- **Subagents:** depth is carried in session metadata (`subagentDepth`), capped at 2; the
+  `task` tool is permission-checked like any other tool.
 
 ## Architecture notes
 

@@ -395,7 +395,7 @@ fn draw_overlay(frame: &mut Frame, app: &App, area: Rect) {
                 "  Ctrl+R           show/hide reasoning",
                 "  Ctrl+C           abort, or quit when idle",
                 "",
-                "  Slash commands   /new /model /agent /sessions /abort /reasoning /clear /quit",
+                "  Slash commands   /new /model /agent /sessions /compact /abort /reasoning /clear /quit",
                 "",
                 "  @file attachments are not implemented yet; use `recode run --file`.",
             ]

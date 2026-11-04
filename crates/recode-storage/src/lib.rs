@@ -42,6 +42,16 @@ pub struct StoredMessage {
     pub parts: Vec<recode_schema::part::Part>,
 }
 
+/// The latest summary of older history for a session.
+#[derive(Clone, Debug)]
+pub struct CompactionRecord {
+    pub summary: String,
+    pub through: recode_schema::MessageId,
+    pub tokens_before: u64,
+    pub tokens_after: u64,
+    pub created_at: i64,
+}
+
 impl StoredMessage {
     pub fn into_message(self) -> Message {
         Message {
@@ -441,6 +451,26 @@ impl Store {
         Ok(Some(StoredMessage { info, parts }))
     }
 
+    /// Latest compaction summary for a session, if any.
+    pub fn compaction(&self, session_id: &SessionId) -> Result<Option<CompactionRecord>> {
+        let conn = self.conn.lock();
+        let mut stmt = conn.prepare(
+            "SELECT summary, through, tokens_before, tokens_after, created_at
+             FROM compaction WHERE session_id = ?1",
+        )?;
+        let mut rows = stmt.query(params![session_id.0])?;
+        let Some(row) = rows.next()? else {
+            return Ok(None);
+        };
+        Ok(Some(CompactionRecord {
+            summary: row.get(0)?,
+            through: recode_schema::MessageId::from_existing(row.get::<_, String>(1)?),
+            tokens_before: row.get(2)?,
+            tokens_after: row.get(3)?,
+            created_at: row.get(4)?,
+        }))
+    }
+
     fn parts_for_message_locked(
         &self,
         conn: &Connection,
@@ -545,6 +575,7 @@ pub(crate) fn event_type(event: &Event) -> &'static str {
         Event::SessionError { .. } => "session.error",
         Event::PermissionAsked { .. } => "permission.asked",
         Event::PermissionReplied { .. } => "permission.replied",
+        Event::SessionCompacted { .. } => "session.compacted",
     }
 }
 

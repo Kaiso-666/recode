@@ -48,9 +48,30 @@ pub fn system_prompt(
 /// Tool calls and their results live in the same assistant message in storage;
 /// providers require a call followed by its result, so the conversion emits an
 /// assistant message and a tool message per step.
-pub fn to_llm_messages(messages: &[StoredMessage]) -> Vec<LlmMessage> {
+///
+/// When a [`CompactionRecord`] is present, messages through its cut point are
+/// replaced by a synthetic summary message.
+pub fn to_llm_messages(
+    messages: &[StoredMessage],
+    compaction: Option<&recode_storage::CompactionRecord>,
+) -> Vec<LlmMessage> {
     let mut output = Vec::new();
-    for message in messages {
+    let start = compaction
+        .and_then(|compaction| {
+            messages
+                .iter()
+                .position(|message| message.info.id == compaction.through)
+                .map(|index| index + 1)
+        })
+        .unwrap_or(0);
+    if let Some(compaction) = compaction {
+        output.push(LlmMessage::user(format!(
+            "Summary of the conversation so far (older messages were compacted):\n\n{}\n\n\
+             Continue from the current state. Do not repeat work already completed.",
+            compaction.summary.trim()
+        )));
+    }
+    for message in &messages[start..] {
         match message.info.role {
             Role::User => {
                 let mut blocks = Vec::new();
@@ -186,7 +207,7 @@ mod tests {
             message(Role::User, vec![Part::text("read a.txt")]),
             message(Role::Assistant, vec![Part::Tool(tool)]),
         ];
-        let converted = to_llm_messages(&messages);
+        let converted = to_llm_messages(&messages, None);
         assert_eq!(converted.len(), 3);
         assert_eq!(converted[1].role, LlmRole::Assistant);
         assert_eq!(converted[2].role, LlmRole::Tool);
@@ -195,6 +216,6 @@ mod tests {
     #[test]
     fn skips_empty_assistant_messages() {
         let messages = vec![message(Role::Assistant, vec![])];
-        assert!(to_llm_messages(&messages).is_empty());
+        assert!(to_llm_messages(&messages, None).is_empty());
     }
 }

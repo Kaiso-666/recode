@@ -11,7 +11,7 @@ pub async fn run(args: SessionsArgs) -> anyhow::Result<()> {
     let engine = Engine::new(EngineOptions {
         paths: crate::cmd::paths(),
         directory,
-        responder: Arc::new(AutoReject),
+        responder: Some(Arc::new(AutoReject)),
     })
     .map_err(anyhow::Error::msg)?;
     match args.command {
@@ -30,7 +30,7 @@ pub async fn run(args: SessionsArgs) -> anyhow::Result<()> {
                 println!(
                     "{}\t{}\t{}\t{}",
                     session.id,
-                    session.updated_at,
+                    format_time(session.updated_at),
                     session.directory.display(),
                     if session.title.is_empty() {
                         "(untitled)"
@@ -89,6 +89,29 @@ pub async fn run(args: SessionsArgs) -> anyhow::Result<()> {
                 None => println!("{}", serde_json::to_string_pretty(&value)?),
             }
         }
+        SessionsCommand::Compact { id } => {
+            let session_id = SessionId::from_existing(id.clone());
+            match engine
+                .compact(&session_id)
+                .await
+                .map_err(anyhow::Error::msg)?
+            {
+                Some(record) => println!(
+                    "Compacted {id}: {} → {} tokens",
+                    record.tokens_before, record.tokens_after
+                ),
+                None => println!("Nothing to compact in {id}"),
+            }
+        }
     }
     Ok(())
+}
+
+fn format_time(timestamp: i64) -> String {
+    use chrono::TimeZone;
+    chrono::Local
+        .timestamp_millis_opt(timestamp)
+        .single()
+        .map(|time| time.format("%Y-%m-%d %H:%M").to_string())
+        .unwrap_or_else(|| timestamp.to_string())
 }

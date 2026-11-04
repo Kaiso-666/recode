@@ -423,6 +423,20 @@ impl App {
                 }
             }
             "/sessions" => self.open_session_picker(),
+            "/compact" => {
+                self.set_notice("compacting…");
+                match self.engine.compact(&self.session.id).await {
+                    Ok(Some(record)) => {
+                        self.reload();
+                        self.set_notice(format!(
+                            "compacted: {} → {} tokens",
+                            record.tokens_before, record.tokens_after
+                        ));
+                    }
+                    Ok(None) => self.set_notice("nothing to compact"),
+                    Err(error) => self.set_notice(error),
+                }
+            }
             "/abort" => {
                 if self.engine.abort(&self.session.id) {
                     self.set_notice("aborting…");

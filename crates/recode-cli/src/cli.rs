@@ -153,6 +153,8 @@ pub enum SessionsCommand {
         #[arg(long)]
         output: Option<PathBuf>,
     },
+    /// Summarize older history so the session fits the model context.
+    Compact { id: String },
 }
 
 #[derive(Args)]

@@ -94,7 +94,21 @@ pub(crate) fn migrate(conn: &Connection) -> rusqlite::Result<()> {
             );
             "#,
         )?;
-        conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
     }
+    if version < 2 {
+        conn.execute_batch(
+            r#"
+            CREATE TABLE IF NOT EXISTS compaction (
+                session_id   TEXT PRIMARY KEY,
+                summary      TEXT NOT NULL,
+                through      TEXT NOT NULL,
+                tokens_before INTEGER NOT NULL,
+                tokens_after  INTEGER NOT NULL,
+                created_at   INTEGER NOT NULL
+            );
+            "#,
+        )?;
+    }
+    conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
     Ok(())
 }

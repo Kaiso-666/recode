@@ -15,6 +15,7 @@ use futures_util::stream::Stream;
 use recode_core::engine::Engine;
 use recode_schema::event::LiveEvent;
 use recode_schema::llm::ContentBlock;
+use recode_schema::permission::PermissionReply;
 use recode_schema::SessionId;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -52,6 +53,8 @@ impl Server {
             .route("/api/sessions/{id}/abort", post(abort))
             .route("/api/sessions/{id}/events", get(session_events))
             .route("/api/events", get(events))
+            .route("/api/permissions", get(list_permissions))
+            .route("/api/permissions/{id}", post(reply_permission))
             .route("/api/openapi.json", get(openapi))
             .layer(middleware::from_fn_with_state(state.clone(), authorize))
             .layer(CorsLayer::permissive())
@@ -255,6 +258,42 @@ async fn abort(State(state): State<AppState>, Path(id): Path<String>) -> Json<Va
     Json(json!({"aborted": aborted}))
 }
 
+#[derive(Deserialize)]
+struct PermissionQuery {
+    #[serde(default)]
+    session: Option<String>,
+}
+
+async fn list_permissions(
+    State(state): State<AppState>,
+    Query(query): Query<PermissionQuery>,
+) -> Json<Value> {
+    let session = query
+        .session
+        .as_deref()
+        .map(|id| SessionId::from_existing(id.to_owned()));
+    let pending = state.engine.permissions.pending_requests(session.as_ref());
+    Json(json!({"permissions": pending}))
+}
+
+#[derive(Deserialize)]
+struct PermissionReplyRequest {
+    reply: PermissionReply,
+}
+
+async fn reply_permission(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(body): Json<PermissionReplyRequest>,
+) -> Result<Json<Value>, ApiError> {
+    if !state.engine.permissions.reply(&id, body.reply) {
+        return Err(ApiError::not_found(format!(
+            "permission request {id} is not pending"
+        )));
+    }
+    Ok(Json(json!({"ok": true})))
+}
+
 async fn session_events(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -329,7 +368,9 @@ async fn openapi() -> Json<Value> {
             "/api/sessions/{id}/prompt": {"post": {"operationId": "sessions.prompt"}},
             "/api/sessions/{id}/abort": {"post": {"operationId": "sessions.abort"}},
             "/api/sessions/{id}/events": {"get": {"operationId": "sessions.events"}},
-            "/api/events": {"get": {"operationId": "events"}}
+            "/api/events": {"get": {"operationId": "events"}},
+            "/api/permissions": {"get": {"operationId": "permissions.list"}},
+            "/api/permissions/{id}": {"post": {"operationId": "permissions.reply"}}
         }
     }))
 }

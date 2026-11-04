@@ -18,8 +18,8 @@ Each milestone ends with a green `cargo test` and a usable binary. No milestone 
 
 ## M2 — Tools
 - [x] Registry with JSON Schema, permission action, timeout, truncation.
-- [x] `bash`, `read`, `write`, `edit`, `multi_edit`, `glob`, `grep`, `ls`, `webfetch`, `todowrite`.
-- [ ] `patch`, `task` (subagent), `question`.
+- [x] `bash`, `read`, `write`, `edit`, `multi_edit`, `glob`, `grep`, `ls`, `webfetch`, `todowrite`, `task` (subagent).
+- [ ] `patch`, `question`.
 - [x] Permission engine (allow/ask/deny, wildcard patterns, per-project overrides).
 - [x] Sandbox path policy + bash env scrub + output caps.
 - **Exit:** agent can fix a seeded bug in a temp repo without human input (auto-approve). 🟡 (tool loop proven; seeded-bug fixture pending)
@@ -35,15 +35,15 @@ Each milestone ends with a green `cargo test` and a usable binary. No milestone 
 - [x] ratatui app: transcript, streaming markdown-lite, tool cards, input editor.
 - [x] session picker/resume, model picker, agent switcher, permission modal.
 - [x] keybinds, mouse scroll, paste, history, `/commands`; `@file` completion pending.
-- [ ] Hand-test in a real terminal: resize, paste, permission modal, pickers.
-- **Exit:** full interactive session, resumable after restart, no flicker at 60fps. 🟡
+- [x] Hand-test in a real terminal: resize, paste, permission modal, pickers.
+- **Exit:** full interactive session, resumable after restart, no flicker at 60fps. ✅
 
 ## M5 — Server + clients
 - [x] axum API: sessions, messages, prompt, abort, config, providers, health, events SSE.
 - [x] auth token, CORS, request tracing, OpenAPI JSON stub.
-- [ ] Server-side permission replies (`permission.asked` SSE + POST reply).
+- [x] Server-side permission replies (`permission.asked` SSE + POST reply).
 - [ ] TUI/CLI can attach to `recode serve` via `--server`.
-- **Exit:** two clients observe one session live.
+- **Exit:** two clients observe one session live. 🟡
 
 ## M6 — Code intelligence
 - [ ] LSP manager: spawn per-project servers, diagnostics after edits, hover/symbols.
@@ -52,10 +52,11 @@ Each milestone ends with a green `cargo test` and a usable binary. No milestone 
 - **Exit:** diagnostics appear in tool results; an MCP filesystem server's tool is callable.
 
 ## M7 — Sessions at scale
-- [ ] Fork/revert/compaction, summaries, token-budget auto-compact.
+- [x] Compaction, summaries, token-budget auto-compact.
+- [ ] Fork/revert.
 - [ ] File snapshots + revert (shadow git), patch tracking.
-- [ ] Share/export (markdown/JSON) — export exists; markdown/share pending.
-- **Exit:** compact a 200k-token session; revert a file to pre-edit state.
+- [ ] Share/export (markdown/JSON) — JSON export exists; markdown/share pending.
+- **Exit:** compact a 200k-token session; revert a file to pre-edit state. 🟡
 
 ## M8 — Polish / release
 - [ ] Windows installer, shell completions, `recode upgrade`.

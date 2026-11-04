@@ -108,15 +108,41 @@ async fn run_inner(
             return Ok(());
         }
         let messages = engine.messages(session_id)?;
-        let llm_messages = prompt::to_llm_messages(
-            &messages
-                .iter()
-                .map(|message| recode_storage::StoredMessage {
-                    info: message.info.clone(),
-                    parts: message.parts.clone(),
-                })
-                .collect::<Vec<_>>(),
-        );
+        let stored: Vec<recode_storage::StoredMessage> = messages
+            .iter()
+            .map(|message| recode_storage::StoredMessage {
+                info: message.info.clone(),
+                parts: message.parts.clone(),
+            })
+            .collect();
+        let compaction = engine
+            .store
+            .compaction(session_id)
+            .map_err(|error| error.to_string())?;
+        let mut llm_messages = prompt::to_llm_messages(&stored, compaction.as_ref());
+        let context_limit = model_config.limit.context.max(8_000);
+        let estimated = crate::compaction::estimate_tokens(&llm_messages)
+            + (system.chars().count() as u64 / 4)
+            + (tool_specs.len() as u64 * 400);
+        if estimated > context_limit * 85 / 100 && stored.len() > 2 {
+            match crate::compaction::compact_session(engine, session_id, model, cancel).await {
+                Ok(Some(record)) => {
+                    let stored: Vec<recode_storage::StoredMessage> = engine
+                        .messages(session_id)?
+                        .iter()
+                        .map(|message| recode_storage::StoredMessage {
+                            info: message.info.clone(),
+                            parts: message.parts.clone(),
+                        })
+                        .collect();
+                    llm_messages = prompt::to_llm_messages(&stored, Some(&record));
+                }
+                Ok(None) => {}
+                Err(error) => {
+                    tracing::warn!(session = %session_id, %error, "automatic compaction failed");
+                }
+            }
+        }
         let assistant = MessageInfo::assistant(session_id.clone(), agent_id, model.clone());
         engine
             .store
@@ -210,6 +236,7 @@ async fn run_inner(
                 &assistant.id,
                 call,
                 allow_outside,
+                model,
                 cancel,
             )
             .await?;
@@ -693,6 +720,7 @@ async fn execute_call(
     message_id: &MessageId,
     call: &FinalCall,
     allow_outside: bool,
+    model: &ModelRef,
     cancel: &CancellationToken,
 ) -> Result<(), String> {
     let base_state = load_tool_state(engine, message_id, &call.part_id)
@@ -741,17 +769,32 @@ async fn execute_call(
         running.clone(),
     )?;
 
+    let session = engine.session(session_id)?;
+    let depth = session
+        .as_ref()
+        .and_then(|session| session.metadata.get("subagentDepth"))
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
     let mut context = recode_tool::ToolContext::new(
         session_id.clone(),
         message_id.clone(),
         call.id.clone(),
-        engine
-            .session(session_id)?
-            .map(|session| session.directory)
+        session
+            .as_ref()
+            .map(|session| session.directory.clone())
             .unwrap_or_else(|| engine.project.root.clone()),
     );
     context.abort = cancel.clone();
     context.allow_outside = allow_outside;
+    if depth < crate::subagent::MAX_SUBAGENT_DEPTH {
+        context.subagent = Some(Arc::new(crate::subagent::EngineSubagent::new(
+            engine.clone(),
+            session_id.clone(),
+            model.clone(),
+            depth,
+            cancel.clone(),
+        )));
+    }
     let result = engine
         .tools
         .execute(&call.name, call.input.clone(), &context)

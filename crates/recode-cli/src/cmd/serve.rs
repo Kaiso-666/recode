@@ -2,10 +2,11 @@ use crate::cli::ServeArgs;
 
 pub async fn run(args: ServeArgs) -> anyhow::Result<()> {
     let directory = crate::cmd::directory(args.directory.clone())?;
-    let responder: std::sync::Arc<dyn recode_core::PermissionResponder> = if args.auto {
-        std::sync::Arc::new(recode_core::permission::AutoApprove)
+    let responder: Option<std::sync::Arc<dyn recode_core::PermissionResponder>> = if args.auto {
+        Some(std::sync::Arc::new(recode_core::permission::AutoApprove))
     } else {
-        std::sync::Arc::new(recode_core::permission::AutoReject)
+        // Server clients approve through POST /api/permissions/{id}.
+        None
     };
     let engine = recode_core::Engine::new(recode_core::EngineOptions {
         paths: crate::cmd::paths(),
