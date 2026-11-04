@@ -1,0 +1,8 @@
+/target
+/.recode
+*.db
+*.db-wal
+*.db-shm
+.env
+.env.*
+node_modules

@@ -1,0 +1,31 @@
+[package]
+name = "recode-cli"
+description = "The recode command line interface"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "recode"
+path = "src/main.rs"
+
+[dependencies]
+recode-schema = { workspace = true }
+recode-storage = { workspace = true }
+recode-core = { workspace = true }
+recode-provider = { workspace = true }
+recode-server = { workspace = true }
+recode-tui = { workspace = true }
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+base64 = { workspace = true }
+clap = { workspace = true }
+dirs = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }

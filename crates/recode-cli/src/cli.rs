@@ -1,0 +1,172 @@
+use clap::{Args, Parser, Subcommand};
+use std::path::PathBuf;
+
+#[derive(Parser)]
+#[command(
+    name = "recode",
+    version,
+    about = "Re:Code — a Rust-native AI coding agent",
+    long_about = "Re:Code is a provider-neutral terminal coding agent. Run `recode` for the TUI, \
+                  `recode run \"prompt\"` for headless use, or `recode serve` for the HTTP API."
+)]
+pub struct Cli {
+    #[command(subcommand)]
+    pub command: Option<Command>,
+}
+
+#[derive(Subcommand)]
+pub enum Command {
+    /// Run one prompt headlessly and print the result.
+    Run(RunArgs),
+    /// Open the interactive terminal UI (default).
+    Tui(TuiArgs),
+    /// Serve the local HTTP + SSE API.
+    Serve(ServeArgs),
+    /// Manage provider credentials.
+    Auth(AuthArgs),
+    /// List providers and models.
+    Models,
+    /// Inspect and manage sessions.
+    Sessions(SessionsArgs),
+    /// Inspect configuration.
+    Config(ConfigArgs),
+}
+
+#[derive(Args, Default)]
+pub struct TuiArgs {
+    /// Resume a session by id.
+    #[arg(long)]
+    pub session: Option<String>,
+    /// Directory to open (defaults to the current directory).
+    #[arg(long)]
+    pub directory: Option<PathBuf>,
+    /// Model to select (provider/model).
+    #[arg(long)]
+    pub model: Option<String>,
+    /// Agent to select.
+    #[arg(long)]
+    pub agent: Option<String>,
+    /// Approve all permission requests without prompting.
+    #[arg(long)]
+    pub auto: bool,
+}
+
+#[derive(Args, Default)]
+pub struct RunArgs {
+    /// Prompt text. Reads stdin when omitted and stdin is not a TTY.
+    #[arg(
+        value_name = "MESSAGE",
+        trailing_var_arg = true,
+        allow_hyphen_values = true
+    )]
+    pub message: Vec<String>,
+    /// Model to use (provider/model).
+    #[arg(long)]
+    pub model: Option<String>,
+    /// Agent to use (build, plan, general, explore, or a configured agent).
+    #[arg(long)]
+    pub agent: Option<String>,
+    /// Resume a session by id.
+    #[arg(long)]
+    pub session: Option<String>,
+    /// Continue the most recent session.
+    #[arg(long = "continue")]
+    pub continue_session: bool,
+    /// Approve all permission requests without prompting.
+    #[arg(long)]
+    pub auto: bool,
+    /// Attach a file (repeatable). Images are sent as attachments; text files are inlined.
+    #[arg(long, value_name = "FILE")]
+    pub file: Vec<PathBuf>,
+    /// Output format: text or json.
+    #[arg(long, default_value = "text")]
+    pub format: String,
+    /// Title for a newly created session.
+    #[arg(long)]
+    pub title: Option<String>,
+    /// Directory to open (defaults to the current directory).
+    #[arg(long)]
+    pub directory: Option<PathBuf>,
+    /// Abort the run after this many seconds.
+    #[arg(long, default_value = "0")]
+    pub timeout: u64,
+}
+
+#[derive(Args)]
+pub struct ServeArgs {
+    #[arg(long, default_value = "127.0.0.1")]
+    pub hostname: String,
+    #[arg(long, default_value = "4319")]
+    pub port: u16,
+    #[arg(long)]
+    pub directory: Option<PathBuf>,
+    /// Bearer token required by API clients. Generated when omitted.
+    #[arg(long)]
+    pub token: Option<String>,
+    /// Approve all permission requests.
+    #[arg(long)]
+    pub auto: bool,
+}
+
+#[derive(Args)]
+pub struct AuthArgs {
+    #[command(subcommand)]
+    pub command: AuthCommand,
+}
+
+#[derive(Subcommand)]
+pub enum AuthCommand {
+    /// Store an API key for a provider.
+    Login {
+        provider: String,
+        #[arg(long)]
+        key: Option<String>,
+    },
+    /// Remove a stored credential.
+    Logout { provider: String },
+    /// List stored credentials.
+    List,
+}
+
+#[derive(Args)]
+pub struct SessionsArgs {
+    #[command(subcommand)]
+    pub command: SessionsCommand,
+}
+
+#[derive(Subcommand)]
+pub enum SessionsCommand {
+    /// List sessions for this project.
+    List {
+        #[arg(long)]
+        all: bool,
+        #[arg(long)]
+        archived: bool,
+    },
+    /// Print a session transcript.
+    Show { id: String },
+    /// Delete a session and its events.
+    Delete { id: String },
+    /// Export a session as JSON.
+    Export {
+        id: String,
+        #[arg(long)]
+        output: Option<PathBuf>,
+    },
+}
+
+#[derive(Args)]
+pub struct ConfigArgs {
+    #[command(subcommand)]
+    pub command: ConfigCommand,
+}
+
+#[derive(Subcommand)]
+pub enum ConfigCommand {
+    /// Print the merged configuration with secrets redacted.
+    Show,
+    /// Print the configuration and database paths.
+    Path,
+    /// Rebuild projection tables from the event log.
+    Rebuild,
+}

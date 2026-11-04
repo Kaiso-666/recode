@@ -1,0 +1,86 @@
+[workspace]
+resolver = "2"
+members = [
+  "crates/recode-schema",
+  "crates/recode-storage",
+  "crates/recode-provider",
+  "crates/recode-tool",
+  "crates/recode-core",
+  "crates/recode-server",
+  "crates/recode-tui",
+  "crates/recode-cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.83"
+license = "MIT"
+authors = ["Re:Code contributors"]
+repository = "https://github.com/Kaiso-666/recode"
+homepage = "https://github.com/Kaiso-666/recode"
+
+[workspace.dependencies]
+recode-schema = { path = "crates/recode-schema" }
+recode-storage = { path = "crates/recode-storage" }
+recode-provider = { path = "crates/recode-provider" }
+recode-tool = { path = "crates/recode-tool" }
+recode-core = { path = "crates/recode-core" }
+recode-server = { path = "crates/recode-server" }
+recode-tui = { path = "crates/recode-tui" }
+
+anyhow = "1.0"
+async-trait = "0.1"
+axum = { version = "0.8", features = ["json", "http1", "tokio"] }
+base64 = "0.22"
+bytes = "1.6"
+chrono = { version = "0.4", default-features = false, features = ["clock", "serde", "std"] }
+clap = { version = "4.5", features = ["derive", "env", "wrap_help"] }
+crossterm = "0.28"
+dirs = "5.0"
+futures-util = "0.3"
+globset = "0.4"
+hex = "0.4"
+ignore = "0.4"
+indexmap = { version = "2.5", features = ["serde"] }
+parking_lot = "0.12"
+rand = "0.8"
+ratatui = "0.29"
+regex = "1.10"
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+similar = "2.6"
+tempfile = "3.12"
+thiserror = "2.0"
+tokio = { version = "1.40", features = ["rt-multi-thread", "macros", "fs", "process", "io-util", "io-std", "sync", "time", "signal", "net"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+toml = "0.8"
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors", "trace", "limit"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+unicode-width = "0.2"
+url = "2.5"
+uuid = { version = "1.10", features = ["v4", "v7", "serde"] }
+walkdir = "2.5"
+
+[profile.dev]
+opt-level = 0
+debug = 0
+incremental = true
+
+[profile.dev.package."*"]
+opt-level = 2
+
+[profile.release]
+lto = "thin"
+codegen-units = 4
+strip = true
+
+[profile.dist]
+inherits = "release"
+lto = "fat"
+codegen-units = 1
