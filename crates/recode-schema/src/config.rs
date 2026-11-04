@@ -132,6 +132,28 @@ pub struct ProviderOptions {
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct LspServerConfig {
+    /// Executable and arguments, e.g. `["rust-analyzer"]`.
+    #[serde(default)]
+    pub command: Vec<String>,
+    /// File extensions handled by the server, e.g. `[".rs"]`.
+    #[serde(default)]
+    pub extensions: Vec<String>,
+    /// LSP language id; defaults to the extension without the dot.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub language_id: Option<String>,
+    /// Only start the server when one of these files exists in the project.
+    #[serde(default)]
+    pub root_markers: Vec<String>,
+    #[serde(default = "crate::default_true")]
+    pub enabled: bool,
+    /// Sent as `initializationOptions`.
+    #[serde(default, skip_serializing_if = "serde_json::Value::is_null")]
+    pub initialization: serde_json::Value,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AgentConfig {
     #[serde(default)]
     pub description: String,
@@ -266,6 +288,10 @@ pub struct Config {
     pub instructions: Vec<String>,
     #[serde(default)]
     pub mcp: IndexMap<String, McpServerConfig>,
+    /// Language servers started on demand. Built-ins cover rust, typescript,
+    /// python, go and clang; entries here override or disable them.
+    #[serde(default)]
+    pub lsp: IndexMap<String, LspServerConfig>,
     #[serde(default)]
     pub disabled_providers: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -305,6 +331,7 @@ impl Default for Config {
             permission: PermissionConfig::default(),
             instructions: Vec::new(),
             mcp: IndexMap::new(),
+            lsp: IndexMap::new(),
             disabled_providers: Vec::new(),
             autoupdate: None,
             snapshot: None,
@@ -408,6 +435,7 @@ impl Config {
             }
         }
         self.mcp.extend(other.mcp);
+        self.lsp.extend(other.lsp);
         for provider in other.disabled_providers {
             if !self.disabled_providers.contains(&provider) {
                 self.disabled_providers.push(provider);

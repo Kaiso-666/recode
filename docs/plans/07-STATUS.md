@@ -4,10 +4,10 @@ Last updated: 2026-11-04 (verified build)
 
 ## Current state
 
-**Phase:** M2–M5 and M7 complete; M6 (LSP/MCP) next.
+**Phase:** M2–M5 and M7 complete; M6 LSP/MCP complete (formatter hooks remain).
 
 ```
-cargo test --workspace       80 passed, 0 failed
+cargo test --workspace       87 passed, 0 failed
 cargo clippy --workspace --all-targets -- -D warnings   clean
 cargo fmt --all --check       clean
 ```
@@ -22,7 +22,7 @@ cargo fmt --all --check       clean
 | M3 config/agents | ✅ done | JSONC (+BOM), JSONC merge, 4 built-in agents, AGENTS.md/CLAUDE.md, auth store |
 | M4 TUI | ✅ verified | transcript, streaming markdown-lite, editor, pickers, permission modal, todo strip — driven in a real ConPTY (`script/tui_smoke.py`), including the approval modal |
 | M5 server | ✅ core | axum API + SSE verified with curl; bearer auth; permission broker (`GET /api/permissions`, `POST /api/permissions/{id}`) verified end to end |
-| M6 LSP/MCP | ⬜ missing | — |
+| M6 LSP/MCP | ✅ done | on-demand LSP diagnostics in tool results; MCP stdio + streamable HTTP tools (`mcp__*`); formatter hooks pending |
 | M7 sessions at scale | ✅ done | compaction; fork/revert; shadow-git snapshots + file restore; patch tracking; JSON/Markdown export |
 | M8 polish | ⬜ missing | — |
 
@@ -58,11 +58,18 @@ cargo fmt --all --check       clean
   integration test asserts the snapshot part on the user message.
 - Patch tracking: when a run changes files, the last assistant message receives a
   `PatchPart` listing them (integration test); the TUI and Markdown export render it.
+- LSP: a mock language server publishes a diagnostic on `didOpen`; the integration test
+  asserts the `write` tool's result contains `--- diagnostics ---` and the server's
+  message (`tests/lsp.rs`). Unit tests cover diagnostic parsing and Windows file URIs.
+- MCP: both transports are exercised end to end against protocol-accurate mock servers
+  (`script/mock_mcp.py` and an in-test HTTP server). The model calls
+  `mcp__mock__echo`, the registry routes it to the server, and the echoed text is
+  persisted in the tool part (`tests/mcp.rs`).
 - `config show` redacts credentials; `config rebuild` replays the event log.
 
 ## Next actions (in order)
 
-1. LSP diagnostics manager (M6), then MCP client (stdio + streamable HTTP).
+1. Formatter hooks (M6 remainder): opt-in rustfmt/prettier/biome after edits.
 2. TUI polish: `@file` completion, session search, scrollback paging.
 3. Add `recode run --format json` streaming (currently final transcript only).
 4. M5 remainder: TUI/CLI `--server` attach mode.
@@ -104,11 +111,22 @@ cargo fmt --all --check       clean
   files alone, and does not recurse into nested repositories (gitlink limitation).
 - **Patch parts:** computed with `git diff --name-only <pre-prompt snapshot>` at run end and
   attached to the last assistant message; no Patch part is written when nothing changed.
+- **LSP:** servers start on demand for configured extensions (built-ins: rust-analyzer,
+  typescript-language-server, pyright-langserver, gopls, clangd) and are cached per
+  process. `lsp.<name>.enabled: false` disables one. Diagnostics wait at most 1.5 s and
+  initialization at most 15 s; a failed server is not retried until restart. The client
+  handles initialize, didOpen/didChange/didSave and publishDiagnostics only.
+- **MCP:** enabled servers are contacted once before the first prompt, so the first prompt
+  includes their startup time. Tools are named `mcp__<server>__<tool>` (sanitized, 64
+  chars), use permission key `mcp` (default ask), and are visible to agent allowlists
+  unless `"mcp": false` is set. Local transport is line-delimited JSON-RPC; remote uses
+  POST + `Mcp-Session-Id`. Only tools are bridged (resources/prompts are not yet).
 
 ## Architecture notes
 
 - `Engine` owns `Store`, `ConfigManager`, `Project`, `AgentRegistry`, `ToolRegistry`,
-  `Providers`, `PermissionService`, a broadcast bus, and the active-run map.
+  `Providers`, `PermissionService`, `QuestionService`, `SnapshotService`, `LspManager`,
+  `McpManager`, a broadcast bus, and the active-run map.
 - Every durable write goes through `Store::append`/`append_batch`; projections update in the
   same SQLite transaction. `Store::rebuild` replays the log.
 - The runner creates one assistant message per step; tool results live in `ToolPart.state`

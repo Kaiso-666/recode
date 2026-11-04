@@ -19,6 +19,7 @@ mod write;
 pub use todo::{todos_for, TodoItem, TodoPriority, TodoStatus};
 
 use async_trait::async_trait;
+use parking_lot::RwLock;
 use recode_schema::id::{MessageId, SessionId};
 use recode_schema::llm::ToolSpec;
 use recode_schema::permission::Decision;
@@ -165,7 +166,7 @@ pub trait Tool: Send + Sync {
 
 #[derive(Default)]
 pub struct ToolRegistry {
-    tools: BTreeMap<String, Arc<dyn Tool>>,
+    tools: RwLock<BTreeMap<String, Arc<dyn Tool>>>,
 }
 
 impl ToolRegistry {
@@ -175,7 +176,7 @@ impl ToolRegistry {
 
     /// The standard tool set available to agents.
     pub fn builtin() -> Self {
-        let mut registry = Self::new();
+        let registry = Self::new();
         registry.register(Arc::new(bash::BashTool));
         registry.register(Arc::new(read::ReadTool));
         registry.register(Arc::new(write::WriteTool));
@@ -192,26 +193,29 @@ impl ToolRegistry {
         registry
     }
 
-    pub fn register(&mut self, tool: Arc<dyn Tool>) {
-        self.tools.insert(tool.name().to_owned(), tool);
+    /// Register or replace a tool. Interior mutability lets runtime extensions
+    /// (MCP) appear without rebuilding the engine.
+    pub fn register(&self, tool: Arc<dyn Tool>) {
+        self.tools.write().insert(tool.name().to_owned(), tool);
     }
 
     pub fn get(&self, name: &str) -> Option<Arc<dyn Tool>> {
-        self.tools.get(name).cloned()
+        self.tools.read().get(name).cloned()
     }
 
-    pub fn names(&self) -> Vec<&str> {
-        self.tools.keys().map(String::as_str).collect()
+    pub fn names(&self) -> Vec<String> {
+        self.tools.read().keys().cloned().collect()
     }
 
-    pub fn all(&self) -> impl Iterator<Item = &Arc<dyn Tool>> {
-        self.tools.values()
+    pub fn all(&self) -> Vec<Arc<dyn Tool>> {
+        self.tools.read().values().cloned().collect()
     }
 
     /// Tool definitions advertised to the model, filtered by an agent's tool
     /// map. `None` means all tools; a map with any `true` is an allowlist.
     pub fn specs(&self, filter: Option<&BTreeMap<String, bool>>) -> Vec<ToolSpec> {
         self.tools
+            .read()
             .iter()
             .filter(|(name, _)| enabled(name, filter))
             .map(|(name, tool)| ToolSpec {
@@ -245,6 +249,11 @@ pub fn enabled(name: &str, filter: Option<&BTreeMap<String, bool>>) -> bool {
     };
     if let Some(value) = filter.get(name) {
         return *value;
+    }
+    // Runtime extensions (MCP tools) are opt-out rather than opt-in, so a
+    // built-in agent's allowlist does not silently hide every MCP tool.
+    if name.starts_with("mcp__") {
+        return filter.get("mcp").copied().unwrap_or(true);
     }
     if filter.values().any(|enabled| *enabled) {
         return false;

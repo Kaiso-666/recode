@@ -9,6 +9,8 @@ pub mod config;
 pub mod engine;
 pub mod instructions;
 pub mod jsonc;
+pub mod lsp;
+pub mod mcp;
 pub mod paths;
 pub mod permission;
 pub mod project;

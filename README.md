@@ -45,6 +45,39 @@ cargo fmt
 Configuration lives at `<config>/recode/recode.json`; data at `<data>/recode/recode.db`.
 `RECODE_CONFIG`, `RECODE_DATA`, and `RECODE_LOG` override the locations.
 
+### Language servers and MCP
+
+LSP servers start on demand for edited files. Built-ins cover Rust, TypeScript,
+Python, Go and C/C++; disable or add one under `lsp`:
+
+```jsonc
+{
+  "lsp": {
+    "rust": { "enabled": false },
+    "custom": { "command": ["my-lsp", "--stdio"], "extensions": [".my"] }
+  }
+}
+```
+
+MCP servers are connected before the first prompt. Their tools appear to the
+model as `mcp__<server>__<tool>` and use the `mcp` permission key:
+
+```jsonc
+{
+  "mcp": {
+    "files": {
+      "type": "local",
+      "command": ["npx", "-y", "@modelcontextprotocol/server-filesystem", "."]
+    },
+    "remote": {
+      "type": "remote",
+      "url": "https://example.com/mcp",
+      "headers": { "Authorization": "Bearer …" }
+    }
+  }
+}
+```
+
 ## Credits
 
 Architecture and product design are derived from opencode (MIT). Re:Code is an independent

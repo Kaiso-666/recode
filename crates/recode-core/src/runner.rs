@@ -12,6 +12,7 @@ use recode_schema::part::{
 };
 use recode_schema::permission::Decision;
 use recode_schema::tool::ToolOutcome;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio_util::sync::CancellationToken;
@@ -863,6 +864,18 @@ async fn execute_call(
                 });
                 let _ = emit_part(engine, session_id, message_id, part);
             }
+            let changed = changed_paths(metadata.as_ref());
+            let diagnostics = if changed.is_empty() {
+                String::new()
+            } else {
+                let results = engine.lsp.diagnostics(&changed).await;
+                crate::lsp::format_diagnostics(&results)
+            };
+            let output = if diagnostics.is_empty() {
+                output
+            } else {
+                format!("{output}\n\n{diagnostics}")
+            };
             let mut state = running;
             state.status = ToolStatus::Completed;
             state.output = Some(output);
@@ -884,6 +897,25 @@ async fn execute_call(
     };
     update_tool_part(engine, session_id, message_id, &call.part_id, state)?;
     Ok(())
+}
+
+fn changed_paths(metadata: Option<&serde_json::Value>) -> Vec<PathBuf> {
+    let Some(value) = metadata else {
+        return Vec::new();
+    };
+    if let Some(files) = value.get("files").and_then(serde_json::Value::as_array) {
+        return files
+            .iter()
+            .filter_map(serde_json::Value::as_str)
+            .map(PathBuf::from)
+            .collect();
+    }
+    value
+        .get("path")
+        .and_then(serde_json::Value::as_str)
+        .map(PathBuf::from)
+        .into_iter()
+        .collect()
 }
 
 fn fail_state(mut state: ToolState, message: String) -> ToolState {

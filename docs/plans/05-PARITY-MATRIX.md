@@ -7,7 +7,7 @@ Status legend: `missing` · `partial` · `done` · `n/a` (explicit non-goal)
 | opencode package | Re:Code crate/module | Status | Notes |
 |---|---|---|---|
 | `schema` | `recode-schema` | done | Core message/part/tool/llm/config types; v1/compat schemas intentionally skipped |
-| `core` | `recode-core` + `recode-tool` + `recode-storage` | partial | Runner, config, agents, permissions, compaction, subagents, snapshots; LSP/MCP pending |
+| `core` | `recode-core` + `recode-tool` + `recode-storage` | partial | Runner, config, agents, permissions, compaction, subagents, snapshots, LSP, MCP; formatter hooks pending |
 | `ai` | `recode-provider` | partial | Canonical LLM events; anthropic/openai-compatible (Gemini via OpenAI endpoint) |
 | `server` | `recode-server` | partial | axum + SSE + permission broker; no editor clients yet |
 | `cli` | `recode-cli` | done | run/tui/serve/auth/models/sessions/config |
@@ -37,8 +37,8 @@ Status legend: `missing` · `partial` · `done` · `n/a` (explicit non-goal)
 | AGENTS.md instructions | yes | done |
 | Custom agents | yes | M3 |
 | Custom commands | yes | M3 |
-| LSP diagnostics | yes | M6 |
-| MCP | yes | M6 |
+| LSP diagnostics | yes | done (on-demand client; diagnostics in tool results) |
+| MCP | yes | done (stdio + streamable HTTP, tools bridged) |
 | Plugins (JS) | yes | n/a (Rust hooks) |
 | Worktrees | yes | missing (post-1.0) |
 | File snapshots | yes | done (shadow git + restore) |

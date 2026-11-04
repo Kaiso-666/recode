@@ -59,8 +59,10 @@ impl Tool for PatchTool {
             return Err(ToolFailure::new("the patch contains no file sections"));
         }
         let mut report = String::new();
+        let mut changed = Vec::new();
         for file in &files {
             let path = context.resolve_path(&file.path)?;
+            changed.push(path.clone());
             let existing = tokio::fs::read_to_string(&path).await.ok();
             let (updated, removed) = apply_file(file, existing.as_deref())?;
             match updated {
@@ -91,7 +93,7 @@ impl Tool for PatchTool {
         Ok(ToolOutcome {
             title: Some(format!("Patch {} file(s)", files.len())),
             output: report,
-            metadata: Some(json!({"files": files.len()})),
+            metadata: Some(json!({"files": changed, "fileCount": files.len()})),
             attachments: Vec::new(),
         })
     }

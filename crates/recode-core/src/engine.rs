@@ -46,6 +46,8 @@ pub struct Engine {
     pub permissions: Arc<crate::permission::PermissionService>,
     pub questions: Arc<crate::question::QuestionService>,
     pub snapshots: Arc<crate::snapshot::SnapshotService>,
+    pub lsp: Arc<crate::lsp::LspManager>,
+    pub mcp: Arc<crate::mcp::McpManager>,
     pub bus: broadcast::Sender<LiveEvent>,
     runs: parking_lot::Mutex<HashMap<SessionId, ActiveRun>>,
 }
@@ -111,6 +113,8 @@ impl Engine {
             project.root.clone(),
             config.merged.snapshot.unwrap_or(true),
         ));
+        let lsp = Arc::new(crate::lsp::LspManager::new(&config, project.root.clone()));
+        let mcp = Arc::new(crate::mcp::McpManager::new(&config, project.root.clone()));
         Ok(Arc::new(Self {
             store,
             config,
@@ -121,6 +125,8 @@ impl Engine {
             permissions,
             questions,
             snapshots,
+            lsp,
+            mcp,
             bus,
             runs: parking_lot::Mutex::new(HashMap::new()),
         }))
@@ -464,6 +470,7 @@ impl Engine {
         }
 
         let message = MessageInfo::user(session_id.clone());
+        self.mcp.ensure_started(&self.tools).await;
         // Snapshot before the model can modify anything. A subagent shares the
         // parent's worktree, so only the parent takes a snapshot.
         let snapshot = if session.parent_id.is_none() {
