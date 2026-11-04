@@ -74,21 +74,58 @@ pub async fn run(args: SessionsArgs) -> anyhow::Result<()> {
                 .map_err(anyhow::Error::msg)?;
             println!("Deleted {id}");
         }
-        SessionsCommand::Export { id, output } => {
+        SessionsCommand::Export { id, output, format } => {
             let session_id = SessionId::from_existing(id.clone());
             let session = engine
                 .session(&session_id)
                 .map_err(anyhow::Error::msg)?
                 .ok_or_else(|| anyhow::anyhow!("session {id} not found"))?;
             let messages = engine.messages(&session_id).map_err(anyhow::Error::msg)?;
-            let value = serde_json::json!({"session": session, "messages": messages});
+            let text = if format == "json" {
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "session": session,
+                    "messages": messages,
+                }))?
+            } else {
+                to_markdown(&session, &messages)
+            };
             match output {
                 Some(path) => {
-                    std::fs::write(&path, serde_json::to_string_pretty(&value)?)?;
+                    std::fs::write(&path, text)?;
                     println!("Wrote {}", path.display());
                 }
-                None => println!("{}", serde_json::to_string_pretty(&value)?),
+                None => println!("{text}"),
             }
+        }
+        SessionsCommand::Fork { id, title } => {
+            let session_id = SessionId::from_existing(id.clone());
+            let forked = engine
+                .fork_session(&session_id, title)
+                .map_err(anyhow::Error::msg)?;
+            let count = engine
+                .messages(&forked.id)
+                .map_err(anyhow::Error::msg)?
+                .len();
+            println!("Forked {id} -> {} ({count} messages)", forked.id);
+        }
+        SessionsCommand::Revert { id, message } => {
+            let session_id = SessionId::from_existing(id.clone());
+            let removed = engine
+                .revert(
+                    &session_id,
+                    &recode_schema::MessageId::from_existing(message),
+                )
+                .map_err(anyhow::Error::msg)?;
+            println!("Reverted {id}: removed {removed} message(s)");
+        }
+        SessionsCommand::Restore { id, message } => {
+            let session_id = SessionId::from_existing(id.clone());
+            let message = message.map(recode_schema::MessageId::from_existing);
+            let snapshot = engine
+                .restore_files(&session_id, message.as_ref())
+                .await
+                .map_err(anyhow::Error::msg)?;
+            println!("Restored {id} to snapshot {snapshot}");
         }
         SessionsCommand::Compact { id } => {
             let session_id = SessionId::from_existing(id.clone());
@@ -115,4 +152,92 @@ fn format_time(timestamp: i64) -> String {
         .single()
         .map(|time| time.format("%Y-%m-%d %H:%M").to_string())
         .unwrap_or_else(|| timestamp.to_string())
+}
+
+fn to_markdown(
+    session: &recode_schema::event::SessionInfo,
+    messages: &[recode_schema::message::Message],
+) -> String {
+    use std::fmt::Write as _;
+    let mut output = String::new();
+    let _ = writeln!(output, "# {}\n", session.display_title());
+    let _ = writeln!(output, "- session: `{}`", session.id);
+    let _ = writeln!(output, "- directory: `{}`", session.directory.display());
+    let _ = writeln!(output, "- created: {}", format_time(session.created_at));
+    if let Some(model) = &session.model {
+        let _ = writeln!(output, "- model: `{}`", model.qualified());
+    }
+    output.push('\n');
+    for message in messages {
+        let heading = match message.info.role {
+            recode_schema::Role::User => "## User",
+            recode_schema::Role::Assistant => "## Assistant",
+        };
+        let _ = writeln!(output, "{heading}\n");
+        for part in &message.parts {
+            match part {
+                Part::Text(text) if !text.text.trim().is_empty() => {
+                    output.push_str(text.text.trim_end());
+                    output.push_str("\n\n");
+                }
+                Part::Reasoning(reasoning) if !reasoning.text.trim().is_empty() => {
+                    let _ = writeln!(
+                        output,
+                        "<details><summary>Reasoning</summary>\n\n```\n{}\n```\n\n</details>\n",
+                        truncate(&reasoning.text, 8_000)
+                    );
+                }
+                Part::Tool(tool) => {
+                    let status = match tool.state.status {
+                        recode_schema::ToolStatus::Completed => "completed",
+                        recode_schema::ToolStatus::Error => "failed",
+                        recode_schema::ToolStatus::Running => "running",
+                        recode_schema::ToolStatus::Pending => "pending",
+                    };
+                    let _ = writeln!(
+                        output,
+                        "**Tool `{}`** — {status}\n",
+                        tool.state
+                            .title
+                            .clone()
+                            .unwrap_or_else(|| tool.tool.clone())
+                    );
+                    if let Some(body) = tool.state.output.as_deref().or(tool.state.error.as_deref())
+                    {
+                        let _ = writeln!(output, "```\n{}\n```\n", truncate(body, 20_000));
+                    }
+                }
+                Part::Error(error) => {
+                    let _ = writeln!(output, "**Error:** {}\n", error.message);
+                }
+                Part::File(file) => {
+                    let _ = writeln!(
+                        output,
+                        "_Attached file: {} ({})_\n",
+                        file.filename, file.mime
+                    );
+                }
+                Part::Patch(patch) if !patch.files.is_empty() => {
+                    let files = patch
+                        .files
+                        .iter()
+                        .map(|file| format!("`{file}`"))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    let _ = writeln!(output, "_Changed files: {files}_\n");
+                }
+                _ => {}
+            }
+        }
+    }
+    output
+}
+
+fn truncate(text: &str, limit: usize) -> String {
+    if text.chars().count() <= limit {
+        return text.to_owned();
+    }
+    let mut truncated: String = text.chars().take(limit).collect();
+    truncated.push_str("\n… [truncated]");
+    truncated
 }

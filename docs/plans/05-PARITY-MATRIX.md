@@ -7,7 +7,7 @@ Status legend: `missing` · `partial` · `done` · `n/a` (explicit non-goal)
 | opencode package | Re:Code crate/module | Status | Notes |
 |---|---|---|---|
 | `schema` | `recode-schema` | done | Core message/part/tool/llm/config types; v1/compat schemas intentionally skipped |
-| `core` | `recode-core` + `recode-tool` + `recode-storage` | partial | Runner, config, agents, permissions, compaction, subagents; LSP/MCP pending |
+| `core` | `recode-core` + `recode-tool` + `recode-storage` | partial | Runner, config, agents, permissions, compaction, subagents, snapshots; LSP/MCP pending |
 | `ai` | `recode-provider` | partial | Canonical LLM events; anthropic/openai-compatible (Gemini via OpenAI endpoint) |
 | `server` | `recode-server` | partial | axum + SSE + permission broker; no editor clients yet |
 | `cli` | `recode-cli` | done | run/tui/serve/auth/models/sessions/config |
@@ -29,7 +29,7 @@ Status legend: `missing` · `partial` · `done` · `n/a` (explicit non-goal)
 | Provider retry/failover | yes | done (retry; no cross-provider failover yet) |
 | Session persistence | SQLite | SQLite event store (done) |
 | Resume a session | yes | done (`--session`, TUI picker) |
-| Fork / revert | yes | M7 |
+| Fork / revert | yes | done (transcript fork, message revert, file restore) |
 | Session compaction | yes | done (manual + automatic) |
 | Subagents (`task`) | yes | done (depth-limited child sessions) |
 | Permissions (allow/ask/deny) | yes | done (in-process + HTTP broker) |
@@ -40,9 +40,9 @@ Status legend: `missing` · `partial` · `done` · `n/a` (explicit non-goal)
 | LSP diagnostics | yes | M6 |
 | MCP | yes | M6 |
 | Plugins (JS) | yes | n/a (Rust hooks) |
-| Worktrees | yes | M7 |
-| File snapshots | yes | M7 |
-| Share/export | yes | M7 |
+| Worktrees | yes | missing (post-1.0) |
+| File snapshots | yes | done (shadow git + restore) |
+| Share/export | yes | partial (local JSON/Markdown; no hosted share) |
 | TUI mouse/paste/themes | rich | M4 (subset) |
 | Web/desktop | yes | n/a |
 

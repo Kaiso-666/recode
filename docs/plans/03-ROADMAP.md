@@ -52,10 +52,10 @@ Each milestone ends with a green `cargo test` and a usable binary. No milestone 
 
 ## M7 — Sessions at scale
 - [x] Compaction, summaries, token-budget auto-compact.
-- [ ] Fork/revert.
-- [ ] File snapshots + revert (shadow git), patch tracking.
-- [ ] Share/export (markdown/JSON) — JSON export exists; markdown/share pending.
-- **Exit:** compact a 200k-token session; revert a file to pre-edit state. 🟡
+- [x] Fork/revert (transcript fork, message revert, file restore).
+- [x] File snapshots + revert (shadow git), patch tracking.
+- [x] Share/export (markdown/JSON).
+- **Exit:** compact a 200k-token session; revert a file to pre-edit state. ✅ (file restore verified end to end; large-session budget exercised with the compaction fixture)
 
 ## M8 — Polish / release
 - [ ] Windows installer, shell completions, `recode upgrade`.

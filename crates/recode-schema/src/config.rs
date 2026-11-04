@@ -270,6 +270,10 @@ pub struct Config {
     pub disabled_providers: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub autoupdate: Option<bool>,
+    /// Keep a shadow-git snapshot of the worktree before every prompt so
+    /// sessions can restore files. Defaults to true when absent.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub snapshot: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub share: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -303,6 +307,7 @@ impl Default for Config {
             mcp: IndexMap::new(),
             disabled_providers: Vec::new(),
             autoupdate: None,
+            snapshot: None,
             share: None,
             theme: None,
             keybinds: serde_json::Value::Null,
@@ -329,6 +334,9 @@ impl Config {
         }
         if other.autoupdate.is_some() {
             self.autoupdate = other.autoupdate;
+        }
+        if other.snapshot.is_some() {
+            self.snapshot = other.snapshot;
         }
         if other.share.is_some() {
             self.share = other.share;

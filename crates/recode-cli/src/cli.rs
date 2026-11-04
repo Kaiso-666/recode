@@ -147,11 +147,28 @@ pub enum SessionsCommand {
     Show { id: String },
     /// Delete a session and its events.
     Delete { id: String },
-    /// Export a session as JSON.
+    /// Export a session as JSON or Markdown.
     Export {
         id: String,
         #[arg(long)]
         output: Option<PathBuf>,
+        #[arg(long, value_parser = ["json", "md", "markdown"], default_value = "json")]
+        format: String,
+    },
+    /// Copy a session's transcript into a new session.
+    Fork {
+        id: String,
+        #[arg(long)]
+        title: Option<String>,
+    },
+    /// Remove every message after the given message.
+    Revert { id: String, message: String },
+    /// Restore the worktree to the snapshot taken when a message was sent
+    /// (defaults to the last user message).
+    Restore {
+        id: String,
+        #[arg(long)]
+        message: Option<String>,
     },
     /// Summarize older history so the session fits the model context.
     Compact { id: String },

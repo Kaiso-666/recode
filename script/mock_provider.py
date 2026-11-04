@@ -139,6 +139,12 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(b"data: [DONE]\n\n")
                 self.wfile.flush()
                 return
+            if SCENARIO == "write":
+                tool_name = "write"
+                arguments = {"file_path": "a.txt", "content": "changed by mock"}
+            else:
+                tool_name = "read"
+                arguments = {"file_path": "a.txt"}
             self.wfile.write(
                 sse(
                     {
@@ -150,8 +156,8 @@ class Handler(BaseHTTPRequestHandler):
                                             "index": 0,
                                             "id": "call_1",
                                             "function": {
-                                                "name": "read",
-                                                "arguments": json.dumps({"file_path": "a.txt"}),
+                                                "name": tool_name,
+                                                "arguments": json.dumps(arguments),
                                             },
                                         }
                                     ]
@@ -170,11 +176,10 @@ class Handler(BaseHTTPRequestHandler):
                 )
             )
         else:
-            text = (
-                "Done. I asked the question."
-                if SCENARIO == "question"
-                else "Done. I read the file."
-            )
+            text = {
+                "question": "Done. I asked the question.",
+                "write": "Done. I wrote the file.",
+            }.get(SCENARIO, "Done. I read the file.")
             self.wfile.write(
                 sse({"choices": [{"delta": {"content": text}, "finish_reason": "stop"}]})
             )
@@ -196,7 +201,7 @@ def main():
     parser.add_argument("--port", type=int, default=18888)
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--log")
-    parser.add_argument("--scenario", choices=["read", "question"], default="read")
+    parser.add_argument("--scenario", choices=["read", "question", "write"], default="read")
     args = parser.parse_args()
     LOG_PATH = args.log
     SCENARIO = args.scenario

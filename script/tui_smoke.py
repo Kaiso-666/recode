@@ -72,6 +72,13 @@ def main():
     parser.add_argument("--binary", default=r"C:\Users\meow\projects\recode\target\debug\recode.exe")
     parser.add_argument("--permission", action="store_true")
     parser.add_argument("--question", action="store_true")
+    parser.add_argument("--write", action="store_true")
+    parser.add_argument("--undo", action="store_true")
+    parser.add_argument(
+        "--expect-file",
+        help="After --undo, assert this file contains the given text as --expect-text.",
+    )
+    parser.add_argument("--expect-text", default="before")
     args = parser.parse_args()
 
     env = os.environ.copy()
@@ -84,7 +91,10 @@ def main():
     try:
         if not session.wait_for("Welcome to Re:Code"):
             failures.append("welcome screen did not render")
-        session.send("read a.txt\r" if not args.question else "ask me something\r")
+        prompt = "ask me something" if args.question else "read a.txt"
+        if args.write:
+            prompt = "write a.txt"
+        session.send(prompt + "\r")
         if args.permission:
             if not session.wait_for("permission", timeout=15):
                 failures.append("permission modal did not appear")
@@ -96,10 +106,27 @@ def main():
         expected = (
             "Done. I asked the question."
             if args.question
+            else "Done. I wrote the file."
+            if args.write
             else "Done. I read the file."
         )
         if not session.wait_for(expected, timeout=20):
             failures.append("assistant reply did not render")
+        if args.undo:
+            session.send("/undo\r")
+            if not session.wait_for("restored files", timeout=15):
+                failures.append("undo did not restore files")
+            elif args.expect_file:
+                path = os.path.join(args.project, args.expect_file)
+                try:
+                    with open(path, encoding="utf-8") as handle:
+                        content = handle.read().strip()
+                except OSError as error:
+                    content = f"<{error}>"
+                if content != args.expect_text:
+                    failures.append(
+                        f"expected {args.expect_file!r} to contain {args.expect_text!r}, got {content!r}"
+                    )
         # Help overlay.
         session.send("\x1bOP")  # F1
         if not session.wait_for("send the message", timeout=5):

@@ -45,6 +45,7 @@ pub struct Engine {
     pub providers: Arc<Providers>,
     pub permissions: Arc<crate::permission::PermissionService>,
     pub questions: Arc<crate::question::QuestionService>,
+    pub snapshots: Arc<crate::snapshot::SnapshotService>,
     pub bus: broadcast::Sender<LiveEvent>,
     runs: parking_lot::Mutex<HashMap<SessionId, ActiveRun>>,
 }
@@ -104,6 +105,12 @@ impl Engine {
             Some(bus.clone()),
             std::time::Duration::from_secs(300),
         ));
+        let snapshots = Arc::new(crate::snapshot::SnapshotService::new(
+            &options.paths,
+            &project.info.id.0,
+            project.root.clone(),
+            config.merged.snapshot.unwrap_or(true),
+        ));
         Ok(Arc::new(Self {
             store,
             config,
@@ -113,6 +120,7 @@ impl Engine {
             providers,
             permissions,
             questions,
+            snapshots,
             bus,
             runs: parking_lot::Mutex::new(HashMap::new()),
         }))
@@ -147,6 +155,162 @@ impl Engine {
         Ok(session)
     }
 
+    /// Copy a session's transcript into a new session. The fork gets fresh
+    /// message and part IDs so it can evolve independently.
+    pub fn fork_session(
+        &self,
+        session_id: &SessionId,
+        title: Option<String>,
+    ) -> Result<SessionInfo, String> {
+        if self.is_busy(session_id) {
+            return Err("session is busy; wait for the current run to finish".into());
+        }
+        let source = self
+            .session(session_id)?
+            .ok_or_else(|| "session not found".to_owned())?;
+        let messages = self.messages(session_id)?;
+        let mut forked = SessionInfo::new(source.project_id.clone(), source.directory.clone());
+        forked.title = title
+            .filter(|title| !title.trim().is_empty())
+            .unwrap_or_else(|| format!("Fork of {}", source.display_title()));
+        forked.agent = source.agent.clone();
+        forked.model = source.model.clone();
+        forked.metadata = serde_json::json!({"forkedFrom": source.id.0});
+        let envelope = self
+            .store
+            .create_session(forked.clone())
+            .map_err(|error| error.to_string())?;
+        let _ = self.bus.send(LiveEvent::Durable(envelope));
+
+        for message in messages {
+            let mut info = message.info.clone();
+            info.id = recode_schema::MessageId::new();
+            info.session_id = forked.id.clone();
+            info.parent_id = None;
+            info.created_at = recode_schema::now_ms();
+            let envelope = self
+                .store
+                .append(Event::MessageAdded {
+                    message: info.clone(),
+                })
+                .map_err(|error| error.to_string())?;
+            let _ = self.bus.send(LiveEvent::Durable(envelope));
+            for part in &message.parts {
+                let envelope = self
+                    .store
+                    .append(Event::PartAdded {
+                        session_id: forked.id.clone(),
+                        message_id: info.id.clone(),
+                        part: part.with_new_id(),
+                    })
+                    .map_err(|error| error.to_string())?;
+                let _ = self.bus.send(LiveEvent::Durable(envelope));
+            }
+        }
+        Ok(forked)
+    }
+
+    /// Remove every message after `through` (which is kept). Returns the number
+    /// of messages removed.
+    pub fn revert(
+        &self,
+        session_id: &SessionId,
+        through: &recode_schema::MessageId,
+    ) -> Result<usize, String> {
+        if self.is_busy(session_id) {
+            return Err("session is busy; wait for the current run to finish".into());
+        }
+        let messages = self.messages(session_id)?;
+        let position = messages
+            .iter()
+            .position(|message| &message.info.id == through)
+            .ok_or_else(|| "message not found in this session".to_owned())?;
+        let removed = &messages[position + 1..];
+        if removed.is_empty() {
+            return Ok(0);
+        }
+        if let Some(compaction) = self
+            .store
+            .compaction(session_id)
+            .map_err(|error| error.to_string())?
+        {
+            if removed
+                .iter()
+                .any(|message| message.info.id == compaction.through)
+            {
+                return Err(
+                    "cannot revert past a compaction boundary; fork the session instead".into(),
+                );
+            }
+        }
+        let events = removed
+            .iter()
+            .map(|message| Event::MessageRemoved {
+                session_id: session_id.clone(),
+                message_id: message.info.id.clone(),
+            })
+            .collect::<Vec<_>>();
+        let envelopes = self
+            .store
+            .append_batch(events)
+            .map_err(|error| error.to_string())?;
+        for envelope in envelopes {
+            let _ = self.bus.send(LiveEvent::Durable(envelope));
+        }
+        if let Some(mut session) = self.session(session_id)? {
+            session.updated_at = recode_schema::now_ms();
+            if let Ok(envelope) = self.store.update_session(session) {
+                let _ = self.bus.send(LiveEvent::Durable(envelope));
+            }
+        }
+        Ok(removed.len())
+    }
+
+    /// Restore the worktree to the snapshot attached to `through` (or to the
+    /// last user message when it is `None`). The transcript itself is left
+    /// alone; call [`Engine::revert`] separately to trim messages.
+    pub async fn restore_files(
+        &self,
+        session_id: &SessionId,
+        through: Option<&recode_schema::id::MessageId>,
+    ) -> Result<String, String> {
+        if self.is_busy(session_id) {
+            return Err("session is busy; wait for the current run to finish".into());
+        }
+        let messages = self.messages(session_id)?;
+        if messages.is_empty() {
+            return Err("session has no messages".into());
+        }
+        let limit = match through {
+            Some(id) => messages
+                .iter()
+                .position(|message| &message.info.id == id)
+                .ok_or_else(|| "message not found in this session".to_owned())?,
+            None => messages
+                .iter()
+                .rposition(|message| message.info.role == recode_schema::Role::User)
+                .unwrap_or(messages.len() - 1),
+        };
+        let snapshot = messages[..=limit]
+            .iter()
+            .rev()
+            .find_map(|message| {
+                message.parts.iter().rev().find_map(|part| match part {
+                    Part::Snapshot(part) => Some(part.snapshot.clone()),
+                    _ => None,
+                })
+            })
+            .ok_or_else(|| {
+                "no file snapshot is attached to this message; snapshots may be disabled".to_owned()
+            })?;
+        self.snapshots.restore(&snapshot).await?;
+        // Make the restored tree a restorable point of its own.
+        if let Err(error) = self.snapshots.snapshot("after restore").await {
+            tracing::warn!(%error, "cannot snapshot the restored tree");
+        }
+        Ok(snapshot)
+    }
+
     pub fn session(&self, session_id: &SessionId) -> Result<Option<SessionInfo>, String> {
         self.store
             .get_session(session_id)
@@ -174,6 +338,17 @@ impl Engine {
             .into_iter()
             .map(StoredMessage::into_message)
             .collect())
+    }
+
+    /// Snapshot attached to the most recent user prompt, if any.
+    pub fn latest_snapshot(&self, session_id: &SessionId) -> Option<String> {
+        let messages = self.messages(session_id).ok()?;
+        messages.iter().rev().find_map(|message| {
+            message.parts.iter().rev().find_map(|part| match part {
+                Part::Snapshot(part) => Some(part.snapshot.clone()),
+                _ => None,
+            })
+        })
     }
 
     pub fn delete_session(&self, session_id: &SessionId) -> Result<(), String> {
@@ -289,6 +464,23 @@ impl Engine {
         }
 
         let message = MessageInfo::user(session_id.clone());
+        // Snapshot before the model can modify anything. A subagent shares the
+        // parent's worktree, so only the parent takes a snapshot.
+        let snapshot = if session.parent_id.is_none() {
+            match self
+                .snapshots
+                .snapshot(&format!("before prompt {}", message.id))
+                .await
+            {
+                Ok(hash) => hash,
+                Err(error) => {
+                    tracing::warn!(%error, "file snapshot failed");
+                    None
+                }
+            }
+        } else {
+            None
+        };
         let appended = self
             .store
             .append(Event::MessageAdded {
@@ -345,6 +537,22 @@ impl Engine {
                         return Err(error.to_string());
                     }
                 }
+            }
+        }
+        if let Some(snapshot) = snapshot {
+            let part = Part::Snapshot(recode_schema::part::SnapshotPart {
+                id: recode_schema::id::PartId::new(),
+                snapshot,
+            });
+            match self.store.append(Event::PartAdded {
+                session_id: session_id.clone(),
+                message_id: message.id.clone(),
+                part,
+            }) {
+                Ok(envelope) => {
+                    let _ = self.bus.send(LiveEvent::Durable(envelope));
+                }
+                Err(error) => tracing::warn!(%error, "cannot persist snapshot part"),
             }
         }
         if session.title.is_empty() {

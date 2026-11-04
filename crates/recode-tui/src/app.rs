@@ -7,6 +7,7 @@ use recode_schema::message::Message;
 use recode_schema::part::Part;
 use recode_schema::permission::{PermissionReply, PermissionRequest};
 use recode_schema::question::{QuestionReply, QuestionRequest};
+use recode_schema::Role;
 use std::sync::Arc;
 use tokio::sync::oneshot;
 
@@ -571,6 +572,44 @@ impl App {
                 }
             }
             "/sessions" => self.open_session_picker(),
+            "/fork" => match self.engine.fork_session(&self.session.id, None) {
+                Ok(session) => {
+                    self.session = session;
+                    self.reload();
+                    self.scroll_back = 0;
+                    self.set_notice("forked session");
+                }
+                Err(error) => self.set_notice(error),
+            },
+            "/undo" => {
+                let last_user = self
+                    .messages
+                    .iter()
+                    .rev()
+                    .find(|message| message.info.role == Role::User)
+                    .map(|message| message.info.id.clone());
+                match last_user {
+                    Some(message_id) => match self.engine.revert(&self.session.id, &message_id) {
+                        Ok(removed) => {
+                            let files = self
+                                .engine
+                                .restore_files(&self.session.id, Some(&message_id))
+                                .await;
+                            self.reload();
+                            match files {
+                                Ok(_) => self.set_notice(format!(
+                                    "undid {removed} message(s) and restored files"
+                                )),
+                                Err(error) => self.set_notice(format!(
+                                    "removed {removed} message(s); files not restored: {error}"
+                                )),
+                            }
+                        }
+                        Err(error) => self.set_notice(error),
+                    },
+                    None => self.set_notice("nothing to undo"),
+                }
+            }
             "/compact" => {
                 self.set_notice("compacting…");
                 match self.engine.compact(&self.session.id).await {

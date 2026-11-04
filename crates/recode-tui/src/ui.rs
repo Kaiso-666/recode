@@ -251,7 +251,28 @@ fn draw_transcript(frame: &mut Frame, app: &App, area: Rect) {
                         ),
                     ]));
                 }
-                Part::StepStart(_) | Part::Snapshot(_) | Part::Patch(_) => {}
+                Part::Patch(patch) => {
+                    if !patch.files.is_empty() {
+                        let mut preview = patch
+                            .files
+                            .iter()
+                            .take(3)
+                            .cloned()
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        if patch.files.len() > 3 {
+                            preview.push_str(&format!(" +{}", patch.files.len() - 3));
+                        }
+                        lines.push(Line::from(vec![
+                            Span::raw("  "),
+                            Span::styled(
+                                format!("· changed {} file(s): {preview}", patch.files.len()),
+                                Style::default().fg(DIM),
+                            ),
+                        ]));
+                    }
+                }
+                Part::StepStart(_) | Part::Snapshot(_) => {}
             }
         }
     }
@@ -396,7 +417,7 @@ fn draw_overlay(frame: &mut Frame, app: &App, area: Rect) {
                 "  Ctrl+R           show/hide reasoning",
                 "  Ctrl+C           abort, or quit when idle",
                 "",
-                "  Slash commands   /new /model /agent /sessions /compact /abort /reasoning /clear /quit",
+                "  Slash commands   /new /fork /undo /model /agent /sessions /compact /abort /reasoning /clear /quit",
                 "",
                 "  @file attachments are not implemented yet; use `recode run --file`.",
             ]

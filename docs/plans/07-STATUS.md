@@ -4,10 +4,10 @@ Last updated: 2026-11-04 (verified build)
 
 ## Current state
 
-**Phase:** M2 complete, M3 complete, M4/M5 verified; M7 next.
+**Phase:** M2–M5 and M7 complete; M6 (LSP/MCP) next.
 
 ```
-cargo test --workspace       75 passed, 0 failed
+cargo test --workspace       80 passed, 0 failed
 cargo clippy --workspace --all-targets -- -D warnings   clean
 cargo fmt --all --check       clean
 ```
@@ -23,7 +23,7 @@ cargo fmt --all --check       clean
 | M4 TUI | ✅ verified | transcript, streaming markdown-lite, editor, pickers, permission modal, todo strip — driven in a real ConPTY (`script/tui_smoke.py`), including the approval modal |
 | M5 server | ✅ core | axum API + SSE verified with curl; bearer auth; permission broker (`GET /api/permissions`, `POST /api/permissions/{id}`) verified end to end |
 | M6 LSP/MCP | ⬜ missing | — |
-| M7 sessions at scale | 🟡 partial | manual + automatic compaction (durable `session.compacted`), JSON export; fork/revert/snapshots missing |
+| M7 sessions at scale | ✅ done | compaction; fork/revert; shadow-git snapshots + file restore; patch tracking; JSON/Markdown export |
 | M8 polish | ⬜ missing | — |
 
 ### Verified end-to-end
@@ -48,14 +48,24 @@ cargo fmt --all --check       clean
   `script/tui_smoke.py --question`) and a pending request in `GET /api/questions` that
   `POST /api/questions/{id}` resolves; the tool returns the selected labels to the model
   (integration test plus curl E2E).
+- Sessions: `sessions fork` copies a transcript with fresh IDs, `sessions revert` removes
+  messages after a boundary, and `sessions export --format md` renders a shareable
+  transcript (verified on the mock-provider transcript). `POST /api/sessions/{id}/fork`
+  and `/revert` (with `files: true`) work over HTTP.
+- File snapshots: every parent prompt commits the worktree to a shadow git repo under
+  `<data>/snapshots/<project-id>`. A `write` tool edit was reverted by `sessions restore`
+  and by the TUI `/undo` command (`script/tui_smoke.py --write --undo`), and the
+  integration test asserts the snapshot part on the user message.
+- Patch tracking: when a run changes files, the last assistant message receives a
+  `PatchPart` listing them (integration test); the TUI and Markdown export render it.
 - `config show` redacts credentials; `config rebuild` replays the event log.
 
 ## Next actions (in order)
 
-1. Fork/revert sessions and markdown export; then file snapshots for pre-edit revert.
-2. LSP diagnostics manager (M6) then MCP client.
-3. TUI polish: `@file` completion, session search, scrollback paging.
-4. Add `recode run --format json` streaming (currently final transcript only).
+1. LSP diagnostics manager (M6), then MCP client (stdio + streamable HTTP).
+2. TUI polish: `@file` completion, session search, scrollback paging.
+3. Add `recode run --format json` streaming (currently final transcript only).
+4. M5 remainder: TUI/CLI `--server` attach mode.
 5. Release plumbing: installer, shell completions, benchmarks.
 
 ## Known issues / gotchas
@@ -86,6 +96,14 @@ cargo fmt --all --check       clean
 - **Questions:** `QuestionService` uses an in-process responder when present, otherwise the
   bus broker; TUI answers call `Engine::questions.reply` directly from the modal. `--auto`
   selects the first option for each question; headless `sessions` commands reject.
+- **File snapshots:** require `git` on `PATH` (missing git degrades to a warning, the run
+  continues); disable with `"snapshot": false` in config. The shadow repo lives under
+  `<data>/snapshots/<project-id>` with `GIT_DIR`/`GIT_WORK_TREE` env vars, so the user's
+  `.git` is never touched. `.git` is always excluded; the project `.gitignore` is used as
+  the excludes file. Restore removes files created after the snapshot but leaves ignored
+  files alone, and does not recurse into nested repositories (gitlink limitation).
+- **Patch parts:** computed with `git diff --name-only <pre-prompt snapshot>` at run end and
+  attached to the last assistant message; no Patch part is written when nothing changed.
 
 ## Architecture notes
 

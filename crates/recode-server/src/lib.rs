@@ -52,6 +52,8 @@ impl Server {
             .route("/api/sessions/{id}/messages", get(messages))
             .route("/api/sessions/{id}/prompt", post(prompt))
             .route("/api/sessions/{id}/abort", post(abort))
+            .route("/api/sessions/{id}/fork", post(fork_session))
+            .route("/api/sessions/{id}/revert", post(revert_session))
             .route("/api/sessions/{id}/events", get(session_events))
             .route("/api/events", get(events))
             .route("/api/permissions", get(list_permissions))
@@ -261,6 +263,65 @@ async fn abort(State(state): State<AppState>, Path(id): Path<String>) -> Json<Va
     Json(json!({"aborted": aborted}))
 }
 
+#[derive(Deserialize, Default)]
+struct ForkRequest {
+    #[serde(default)]
+    title: Option<String>,
+}
+
+async fn fork_session(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(body): Json<ForkRequest>,
+) -> Result<Json<Value>, ApiError> {
+    let forked = state
+        .engine
+        .fork_session(&SessionId::from_existing(id), body.title)
+        .map_err(ApiError::bad_request)?;
+    Ok(Json(json!({"session": forked})))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RevertRequest {
+    #[serde(default)]
+    message_id: Option<String>,
+    #[serde(default)]
+    message: Option<String>,
+    /// Also restore the worktree to the snapshot attached to the message.
+    #[serde(default)]
+    files: bool,
+}
+
+async fn revert_session(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(body): Json<RevertRequest>,
+) -> Result<Json<Value>, ApiError> {
+    let session_id = SessionId::from_existing(id);
+    let message = body
+        .message_id
+        .or(body.message)
+        .ok_or_else(|| ApiError::bad_request("messageId is required"))?;
+    let message_id = recode_schema::MessageId::from_existing(message);
+    let removed = state
+        .engine
+        .revert(&session_id, &message_id)
+        .map_err(ApiError::bad_request)?;
+    let snapshot = if body.files {
+        Some(
+            state
+                .engine
+                .restore_files(&session_id, Some(&message_id))
+                .await
+                .map_err(ApiError::bad_request)?,
+        )
+    } else {
+        None
+    };
+    Ok(Json(json!({"removed": removed, "snapshot": snapshot})))
+}
+
 #[derive(Deserialize)]
 struct PermissionQuery {
     #[serde(default)]
@@ -402,6 +463,8 @@ async fn openapi() -> Json<Value> {
             "/api/sessions/{id}/messages": {"get": {"operationId": "sessions.messages"}},
             "/api/sessions/{id}/prompt": {"post": {"operationId": "sessions.prompt"}},
             "/api/sessions/{id}/abort": {"post": {"operationId": "sessions.abort"}},
+            "/api/sessions/{id}/fork": {"post": {"operationId": "sessions.fork"}},
+            "/api/sessions/{id}/revert": {"post": {"operationId": "sessions.revert"}},
             "/api/sessions/{id}/events": {"get": {"operationId": "sessions.events"}},
             "/api/events": {"get": {"operationId": "events"}},
             "/api/permissions": {"get": {"operationId": "permissions.list"}},

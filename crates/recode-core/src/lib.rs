@@ -16,6 +16,7 @@ pub mod prompt;
 pub mod providers;
 pub mod question;
 pub mod runner;
+pub mod snapshot;
 pub mod subagent;
 
 pub use agent::{Agent, AgentMode, AgentRegistry};

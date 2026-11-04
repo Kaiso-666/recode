@@ -267,6 +267,28 @@ impl Part {
         }
     }
 
+    /// Give this part a fresh identity, e.g. when copying a transcript into a
+    /// forked session.
+    pub fn with_new_id(&self) -> Self {
+        let mut part = self.clone();
+        let id = PartId::new();
+        match &mut part {
+            Part::Text(part) => part.id = id,
+            Part::Reasoning(part) => part.id = id,
+            Part::Tool(part) => part.id = id,
+            Part::StepStart(part) => part.id = id,
+            Part::StepFinish(part) => part.id = id,
+            Part::File(part) => part.id = id,
+            Part::Patch(part) => part.id = id,
+            Part::Snapshot(part) => part.id = id,
+            Part::Agent(part) => part.id = id,
+            Part::Model(part) => part.id = id,
+            Part::Compaction(part) => part.id = id,
+            Part::Error(part) => part.id = id,
+        }
+        part
+    }
+
     pub fn text(text: impl Into<String>) -> Self {
         Part::Text(TextPart {
             id: PartId::new(),

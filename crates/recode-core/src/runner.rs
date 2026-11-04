@@ -7,7 +7,8 @@ use recode_schema::llm::{FinishReason, LlmEvent, LlmRequest, ToolChoice, Usage};
 use recode_schema::message::{MessageError, MessageInfo};
 use recode_schema::model::ModelRef;
 use recode_schema::part::{
-    ErrorPart, Part, PartTime, StepFinishPart, StepStartPart, ToolPart, ToolState, ToolStatus,
+    ErrorPart, Part, PartTime, PatchPart, StepFinishPart, StepStartPart, ToolPart, ToolState,
+    ToolStatus,
 };
 use recode_schema::permission::Decision;
 use recode_schema::tool::ToolOutcome;
@@ -30,6 +31,7 @@ pub async fn run(
     let result = run_inner(&engine, &session_id, &agent_id, &model, &cancel).await;
     match result {
         Ok(()) => {
+            record_patch(&engine, &session_id).await;
             let _ = engine
                 .store
                 .append(Event::SessionIdle {
@@ -67,6 +69,48 @@ pub async fn run(
         }
     }
     engine.set_status(&session_id, SessionStatus::Idle);
+}
+
+/// Record the files changed during this run on the last assistant message.
+/// The hash points at the pre-prompt snapshot, so a client can diff or restore
+/// from the same boundary.
+async fn record_patch(engine: &Arc<Engine>, session_id: &SessionId) {
+    let Some(snapshot) = engine.latest_snapshot(session_id) else {
+        return;
+    };
+    let files = match engine.snapshots.changed_files(&snapshot).await {
+        Ok(files) => files,
+        Err(error) => {
+            tracing::warn!(%error, "cannot compute changed files");
+            return;
+        }
+    };
+    if files.is_empty() {
+        return;
+    }
+    let Some(message) = engine.messages(session_id).ok().and_then(|messages| {
+        messages
+            .into_iter()
+            .rev()
+            .find(|message| message.info.role == recode_schema::Role::Assistant)
+    }) else {
+        return;
+    };
+    let part = Part::Patch(PatchPart {
+        id: PartId::new(),
+        hash: snapshot,
+        files,
+    });
+    match engine.store.append(Event::PartAdded {
+        session_id: session_id.clone(),
+        message_id: message.info.id,
+        part,
+    }) {
+        Ok(envelope) => {
+            let _ = engine.bus.send(LiveEvent::Durable(envelope));
+        }
+        Err(error) => tracing::warn!(%error, "cannot persist patch part"),
+    }
 }
 
 async fn run_inner(
