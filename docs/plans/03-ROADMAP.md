@@ -33,7 +33,7 @@ Each milestone ends with a green `cargo test` and a usable binary. No milestone 
 ## M4 — TUI
 - [x] ratatui app: transcript, streaming markdown-lite, tool cards, input editor.
 - [x] session picker/resume, model picker, agent switcher, permission modal.
-- [x] keybinds, mouse scroll, paste, history, `/commands`; `@file` completion pending.
+- [x] keybinds, mouse scroll, paste, history, `/commands`, `@file` completion, session search, scrollback paging.
 - [x] Hand-test in a real terminal: resize, paste, permission modal, pickers.
 - **Exit:** full interactive session, resumable after restart, no flicker at 60fps. ✅
 

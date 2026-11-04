@@ -68,6 +68,19 @@ impl Input {
         }
     }
 
+    /// Replace the characters in `start..end` of the current line with `text`
+    /// and place the cursor after the inserted text. Used by completions.
+    pub fn replace_token(&mut self, start: usize, end: usize, text: &str) {
+        if self.row >= self.lines.len() {
+            return;
+        }
+        let line = self.lines[self.row].clone();
+        let prefix: String = line.chars().take(start).collect();
+        let suffix: String = line.chars().skip(end).collect();
+        self.lines[self.row] = format!("{prefix}{text}{suffix}");
+        self.col = start + text.chars().count();
+    }
+
     pub fn newline(&mut self) {
         let byte = self.byte_index();
         let tail = self.lines[self.row].split_off(byte);

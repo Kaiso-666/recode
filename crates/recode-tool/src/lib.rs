@@ -329,6 +329,38 @@ fn strip_verbatim(path: PathBuf) -> PathBuf {
     path
 }
 
+/// Files under `root` that are not ignored, as forward-slash relative paths.
+/// Bounded so callers can use it for completion without walking huge trees.
+pub fn list_files(root: &Path, limit: usize) -> Vec<String> {
+    let walker = ignore::WalkBuilder::new(root)
+        .hidden(false)
+        .git_ignore(true)
+        .sort_by_file_path(|left, right| left.cmp(right))
+        .build();
+    let mut files = Vec::new();
+    for entry in walker.flatten() {
+        if files.len() >= limit {
+            break;
+        }
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        if let Ok(relative) = path.strip_prefix(root) {
+            let relative = relative.to_string_lossy().replace('\\', "/");
+            let first = relative.split('/').next().unwrap_or_default();
+            if matches!(
+                first,
+                ".git" | "target" | "node_modules" | "dist" | "build" | ".venv" | "__pycache__"
+            ) {
+                continue;
+            }
+            files.push(relative);
+        }
+    }
+    files
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

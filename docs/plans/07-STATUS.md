@@ -7,7 +7,7 @@ Last updated: 2026-11-04 (verified build)
 **Phase:** M2–M7 complete; M5 attach mode and M8 polishing remain.
 
 ```
-cargo test --workspace       88 passed, 0 failed
+cargo test --workspace       90 passed, 0 failed
 cargo clippy --workspace --all-targets -- -D warnings   clean
 cargo fmt --all --check       clean
 ```
@@ -70,13 +70,18 @@ cargo fmt --all --check       clean
 - JSON output: `recode run --format json` streams one object per line (`delta`, `event`,
   `idle`) and ends with a `result` carrying the final text and usage; stdout stays pure
   JSONL while prompts/logs go to stderr (verified against `script/mock_provider.py`).
+- TUI `@file` completion: typing `@` opens a filtered project-file menu (↑/↓, Tab/Enter, Esc);
+  submitting expands `@path` into `<file path="…">` blocks (unit test + `script/tui_smoke.py
+  --complete`, which types `read @a`, accepts the completion, and gets the mock reply).
+- TUI session search: F4 opens the session picker and typing filters by title or id
+  (`Ctrl+U` clears); verified in the ConPTY smoke test (`--search`).
 - `config show` redacts credentials; `config rebuild` replays the event log.
 
 ## Next actions (in order)
 
-1. TUI polish: `@file` completion, session search, scrollback paging.
-2. M5 remainder: TUI/CLI `--server` attach mode.
-3. Release plumbing: installer, shell completions, benchmarks.
+1. M5 remainder: TUI/CLI `--server` attach mode.
+2. Release plumbing: installer, shell completions, benchmarks.
+3. M8 polish: benchmarks, docs, error-message pass.
 
 ## Known issues / gotchas
 

@@ -28,6 +28,17 @@ pub struct PickerItem {
     pub value: String,
 }
 
+/// Inline `@path` completion state.
+#[derive(Clone, Debug)]
+pub struct Completion {
+    /// Character index of the `@` in the current input line.
+    pub start: usize,
+    /// Text typed after `@`, used for filtering.
+    pub prefix: String,
+    pub items: Vec<String>,
+    pub index: usize,
+}
+
 struct PendingPermission {
     request: PermissionRequest,
     reply: oneshot::Sender<PermissionReply>,
@@ -52,6 +63,7 @@ pub struct App {
     pub overlay: Overlay,
     pub picker: Vec<PickerItem>,
     pub picker_index: usize,
+    pub picker_filter: String,
     pub should_quit: bool,
     pub scroll_back: usize,
     pub notice: Option<(String, u16)>,
@@ -62,6 +74,8 @@ pub struct App {
     pending: Vec<PendingPermission>,
     pub pending_questions: Vec<QuestionRequest>,
     pub question_state: Option<QuestionProgress>,
+    pub completion: Option<Completion>,
+    file_cache: Vec<String>,
 }
 
 impl App {
@@ -79,6 +93,7 @@ impl App {
             overlay: Overlay::None,
             picker: Vec::new(),
             picker_index: 0,
+            picker_filter: String::new(),
             should_quit: false,
             scroll_back: 0,
             notice: None,
@@ -89,6 +104,8 @@ impl App {
             pending: Vec::new(),
             pending_questions: Vec::new(),
             question_state: None,
+            completion: None,
+            file_cache: Vec::new(),
         };
         if app.engine.is_busy(&app.session.id) {
             app.status = SessionStatus::Busy;
@@ -268,6 +285,33 @@ impl App {
             return;
         }
 
+        if self.completion.is_some() {
+            match key.code {
+                KeyCode::Up => {
+                    if let Some(completion) = &mut self.completion {
+                        completion.index = completion.index.saturating_sub(1);
+                    }
+                    return;
+                }
+                KeyCode::Down => {
+                    if let Some(completion) = &mut self.completion {
+                        completion.index =
+                            (completion.index + 1).min(completion.items.len().saturating_sub(1));
+                    }
+                    return;
+                }
+                KeyCode::Tab | KeyCode::Enter => {
+                    self.accept_completion();
+                    return;
+                }
+                KeyCode::Esc => {
+                    self.completion = None;
+                    return;
+                }
+                _ => {}
+            }
+        }
+
         match key.code {
             KeyCode::Esc => {
                 if self.engine.is_busy(&self.session.id) {
@@ -303,7 +347,10 @@ impl App {
             KeyCode::Tab => self.input.insert_str("  "),
             KeyCode::PageUp => self.scroll_back = self.scroll_back.saturating_add(8),
             KeyCode::PageDown => self.scroll_back = self.scroll_back.saturating_sub(8),
-            KeyCode::F(1) => self.overlay = Overlay::Help,
+            KeyCode::F(1) => {
+                self.completion = None;
+                self.overlay = Overlay::Help;
+            }
             KeyCode::F(2) => self.open_model_picker(),
             KeyCode::F(3) => self.open_agent_picker(),
             KeyCode::F(4) => self.open_session_picker(),
@@ -311,11 +358,13 @@ impl App {
             KeyCode::Char(character) if !ctrl && !alt => self.input.insert_char(character),
             _ => {}
         }
+        self.refresh_completion();
     }
 
     pub fn on_paste(&mut self, text: &str) {
         if self.overlay == Overlay::None {
             self.input.insert_str(&text.replace("\r\n", "\n"));
+            self.refresh_completion();
         }
     }
 
@@ -334,7 +383,7 @@ impl App {
                     self.overlay = Overlay::None;
                 }
             }
-            Overlay::Model | Overlay::Agent | Overlay::Sessions => match key.code {
+            Overlay::Model | Overlay::Agent => match key.code {
                 KeyCode::Esc => self.overlay = Overlay::None,
                 KeyCode::Up | KeyCode::Char('k') => {
                     self.picker_index = self.picker_index.saturating_sub(1);
@@ -345,6 +394,35 @@ impl App {
                     }
                 }
                 KeyCode::Enter => self.apply_picker().await,
+                _ => {}
+            },
+            Overlay::Sessions => match key.code {
+                KeyCode::Esc => self.overlay = Overlay::None,
+                KeyCode::Up => {
+                    self.picker_index = self.picker_index.saturating_sub(1);
+                }
+                KeyCode::Down => {
+                    let count = self.visible_picker().len();
+                    if count > 0 {
+                        self.picker_index = (self.picker_index + 1).min(count - 1);
+                    }
+                }
+                KeyCode::Backspace => {
+                    self.picker_filter.pop();
+                    self.picker_index = 0;
+                }
+                KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                    self.picker_filter.clear();
+                    self.picker_index = 0;
+                }
+                KeyCode::Enter => self.apply_picker().await,
+                KeyCode::Char(character)
+                    if !key.modifiers.contains(KeyModifiers::CONTROL)
+                        && !key.modifiers.contains(KeyModifiers::ALT) =>
+                {
+                    self.picker_filter.push(character);
+                    self.picker_index = 0;
+                }
                 _ => {}
             },
             Overlay::Permission => match key.code {
@@ -493,6 +571,7 @@ impl App {
     }
 
     async fn submit(&mut self) {
+        self.completion = None;
         let text = self.input.take();
         if text.trim().is_empty() {
             self.input.clear();
@@ -509,6 +588,8 @@ impl App {
         }
         self.history.push(text.clone());
         self.history_pos = None;
+        self.file_cache.clear();
+        let text = expand_file_references(&self.engine.project.root, text);
         self.status = SessionStatus::Busy;
         if let Err(error) = self
             .engine
@@ -522,6 +603,86 @@ impl App {
         }
         self.scroll_back = 0;
         self.reload();
+    }
+
+    /// Recompute the `@file` menu for the token under the cursor.
+    fn refresh_completion(&mut self) {
+        let Some((start, prefix)) = self.completion_token() else {
+            self.completion = None;
+            return;
+        };
+        if self.file_cache.is_empty() {
+            self.file_cache = recode_tool::list_files(&self.engine.project.root, 5_000);
+        }
+        let needle = prefix.to_ascii_lowercase();
+        let mut items: Vec<String> = self
+            .file_cache
+            .iter()
+            .filter(|path| path.to_ascii_lowercase().starts_with(&needle))
+            .take(50)
+            .cloned()
+            .collect();
+        if items.is_empty() && !needle.is_empty() {
+            items = self
+                .file_cache
+                .iter()
+                .filter(|path| path.to_ascii_lowercase().contains(&needle))
+                .take(50)
+                .cloned()
+                .collect();
+        }
+        if items.is_empty() {
+            self.completion = None;
+            return;
+        }
+        self.completion = Some(Completion {
+            start,
+            prefix,
+            items,
+            index: 0,
+        });
+    }
+
+    /// The `@` token that ends at the cursor, if any: `(at_char_index, prefix)`.
+    fn completion_token(&self) -> Option<(usize, String)> {
+        let line = self.input.lines.get(self.input.row)?;
+        at_token(line, self.input.col)
+    }
+
+    fn accept_completion(&mut self) {
+        let Some(completion) = self.completion.take() else {
+            return;
+        };
+        let Some(item) = completion.items.get(completion.index).cloned() else {
+            return;
+        };
+        let line_len = self
+            .input
+            .lines
+            .get(self.input.row)
+            .map(|line| line.chars().count())
+            .unwrap_or(0);
+        let trailing = if self.input.col >= line_len { " " } else { "" };
+        let text = format!("@{item}{trailing}");
+        self.input
+            .replace_token(completion.start, self.input.col, &text);
+    }
+
+    /// Picker rows after the session search filter is applied.
+    pub fn visible_picker(&self) -> Vec<PickerItem> {
+        if self.overlay == Overlay::Sessions && !self.picker_filter.trim().is_empty() {
+            let needle = self.picker_filter.to_lowercase();
+            self.picker
+                .iter()
+                .filter(|item| {
+                    item.label.to_lowercase().contains(&needle)
+                        || item.value.to_lowercase().contains(&needle)
+                })
+                .cloned()
+                .collect()
+        } else {
+            self.picker.clone()
+        }
     }
 
     async fn handle_command(&mut self, command: &str) {
@@ -677,6 +838,8 @@ impl App {
             .iter()
             .position(|item| item.label.starts_with('●'))
             .unwrap_or(0);
+        self.picker_filter.clear();
+        self.completion = None;
         self.overlay = Overlay::Model;
     }
 
@@ -701,6 +864,8 @@ impl App {
             .iter()
             .position(|item| item.label.starts_with('●'))
             .unwrap_or(0);
+        self.picker_filter.clear();
+        self.completion = None;
         self.overlay = Overlay::Agent;
     }
 
@@ -731,11 +896,14 @@ impl App {
             .iter()
             .position(|item| item.label.starts_with('●'))
             .unwrap_or(0);
+        self.picker_filter.clear();
+        self.completion = None;
         self.overlay = Overlay::Sessions;
     }
 
     async fn apply_picker(&mut self) {
-        let Some(item) = self.picker.get(self.picker_index).cloned() else {
+        let items = self.visible_picker();
+        let Some(item) = items.get(self.picker_index).cloned() else {
             self.overlay = Overlay::None;
             return;
         };
@@ -804,6 +972,69 @@ impl App {
     }
 }
 
+fn at_token(line: &str, cursor: usize) -> Option<(usize, String)> {
+    let chars: Vec<char> = line.chars().collect();
+    let cursor = cursor.min(chars.len());
+    let mut start = cursor;
+    while start > 0 && !chars[start - 1].is_whitespace() {
+        start -= 1;
+    }
+    if start >= cursor || chars.get(start) != Some(&'@') {
+        return None;
+    }
+    Some((start, chars[start + 1..cursor].iter().collect()))
+}
+
+/// Append the contents of files referenced as `@relative/path`. Paths must
+/// resolve inside the project; unreadable, binary and oversized files are
+/// ignored. The total expansion is capped so one prompt cannot exhaust the
+/// context window.
+fn expand_file_references(root: &std::path::Path, text: String) -> String {
+    let mut seen = std::collections::HashSet::new();
+    let mut attachments = String::new();
+    let mut total = 0usize;
+    for token in text.split_whitespace() {
+        let Some(name) = token.strip_prefix('@') else {
+            continue;
+        };
+        let name = name.trim_end_matches(|character: char| ".,;)]".contains(character));
+        if name.is_empty() || !seen.insert(name.to_owned()) {
+            continue;
+        }
+        let Ok(path) = root.join(name).canonicalize() else {
+            continue;
+        };
+        if !recode_tool::is_within(
+            &recode_tool::canonicalish(&path),
+            &recode_tool::canonicalish(root),
+        ) {
+            continue;
+        }
+        let Ok(metadata) = std::fs::metadata(&path) else {
+            continue;
+        };
+        if !metadata.is_file() || metadata.len() > 256 * 1024 {
+            continue;
+        }
+        let Ok(content) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        if content.contains('\0') {
+            continue;
+        }
+        if total + content.len() > 512 * 1024 {
+            break;
+        }
+        total += content.len();
+        attachments.push_str(&format!("\n\n<file path=\"{name}\">\n{content}\n</file>"));
+    }
+    if attachments.is_empty() {
+        text
+    } else {
+        format!("{text}{attachments}")
+    }
+}
+
 fn format_time(timestamp: i64) -> String {
     use chrono::TimeZone;
     chrono::Local
@@ -811,4 +1042,30 @@ fn format_time(timestamp: i64) -> String {
         .single()
         .map(|time| time.format("%m-%d %H:%M").to_string())
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn finds_the_at_token_under_the_cursor() {
+        assert_eq!(at_token("see @src/ma", 11), Some((4, "src/ma".to_owned())));
+        assert_eq!(at_token("mail@host", 9), None);
+        assert_eq!(at_token("plain", 5), None);
+        assert_eq!(at_token("@a", 0), None);
+    }
+
+    #[test]
+    fn expands_existing_file_references_only() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("a.txt"), "hello").unwrap();
+        let expanded = expand_file_references(dir.path(), "read @a.txt".into());
+        assert!(
+            expanded.contains("<file path=\"a.txt\">\nhello\n</file>"),
+            "expanded: {expanded:?}"
+        );
+        let unchanged = expand_file_references(dir.path(), "read @missing.txt".into());
+        assert_eq!(unchanged, "read @missing.txt");
+    }
 }

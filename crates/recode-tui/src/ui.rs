@@ -41,8 +41,63 @@ pub fn draw(frame: &mut Frame, app: &App) {
         draw_todos(frame, &todos, chunks[2]);
     }
     draw_input(frame, app, chunks[3], input_visual);
+    if app.overlay == Overlay::None {
+        draw_completion(frame, app, chunks[3], area);
+    }
     draw_footer(frame, app, chunks[4]);
     draw_overlay(frame, app, area);
+}
+
+fn draw_completion(frame: &mut Frame, app: &App, input_area: Rect, area: Rect) {
+    let Some(completion) = &app.completion else {
+        return;
+    };
+    if completion.items.is_empty() {
+        return;
+    }
+    let height = (completion.items.len().min(8) as u16) + 2;
+    let width = area.width.saturating_sub(8).min(100);
+    let rect = Rect {
+        x: area.x + 4,
+        y: input_area.y.saturating_sub(height),
+        width,
+        height,
+    };
+    frame.render_widget(Clear, rect);
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(DIM))
+        .title(Span::styled(
+            format!(" @{} ", completion.prefix),
+            Style::default().fg(DIM),
+        ));
+    let inner = block.inner(rect);
+    let items: Vec<ListItem> = completion
+        .items
+        .iter()
+        .map(|path| {
+            ListItem::new(Line::from(Span::styled(
+                path.clone(),
+                Style::default().fg(TEXT),
+            )))
+        })
+        .collect();
+    let list = List::new(items)
+        .highlight_style(
+            Style::default()
+                .bg(Color::Rgb(45, 52, 78))
+                .fg(ACCENT)
+                .add_modifier(Modifier::BOLD),
+        )
+        .highlight_symbol("› ");
+    let mut state = ListState::default();
+    state.select(Some(
+        completion
+            .index
+            .min(completion.items.len().saturating_sub(1)),
+    ));
+    frame.render_stateful_widget(list, inner, &mut state);
+    frame.render_widget(block, rect);
 }
 
 fn draw_todos(frame: &mut Frame, todos: &[recode_tool::TodoItem], area: Rect) {
@@ -385,19 +440,23 @@ fn draw_overlay(frame: &mut Frame, app: &App, area: Rect) {
     }
     let rect = centered(area, 78, 64);
     frame.render_widget(Clear, rect);
+    let title = match app.overlay {
+        Overlay::Help => " help ".to_owned(),
+        Overlay::Model => " model ".to_owned(),
+        Overlay::Agent => " agent ".to_owned(),
+        Overlay::Sessions if !app.picker_filter.is_empty() => {
+            format!(" sessions [{}] ", app.picker_filter)
+        }
+        Overlay::Sessions => " sessions ".to_owned(),
+        Overlay::Permission => " permission ".to_owned(),
+        Overlay::Question => " question ".to_owned(),
+        Overlay::None => String::new(),
+    };
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(ACCENT))
         .title(Span::styled(
-            match app.overlay {
-                Overlay::Help => " help ",
-                Overlay::Model => " model ",
-                Overlay::Agent => " agent ",
-                Overlay::Sessions => " sessions ",
-                Overlay::Permission => " permission ",
-                Overlay::Question => " question ",
-                Overlay::None => "",
-            },
+            title,
             Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
         ));
     let inner = block.inner(rect);
@@ -419,7 +478,8 @@ fn draw_overlay(frame: &mut Frame, app: &App, area: Rect) {
                 "",
                 "  Slash commands   /new /fork /undo /model /agent /sessions /compact /abort /reasoning /clear /quit",
                 "",
-                "  @file attachments are not implemented yet; use `recode run --file`.",
+                "  @path            complete a project file (↑/↓, Enter/Tab)",
+                "  F4 + typing      search sessions by title or id",
             ]
             .iter()
             .map(|line| Line::from(Span::styled(*line, Style::default().fg(TEXT))))
@@ -427,8 +487,8 @@ fn draw_overlay(frame: &mut Frame, app: &App, area: Rect) {
             frame.render_widget(Paragraph::new(lines), inner);
         }
         Overlay::Model | Overlay::Agent | Overlay::Sessions => {
-            let items: Vec<ListItem> = app
-                .picker
+            let visible = app.visible_picker();
+            let items: Vec<ListItem> = visible
                 .iter()
                 .map(|item| {
                     ListItem::new(Line::from(Span::styled(
@@ -446,9 +506,11 @@ fn draw_overlay(frame: &mut Frame, app: &App, area: Rect) {
                 )
                 .highlight_symbol("› ");
             let mut state = ListState::default();
-            state.select(Some(
-                app.picker_index.min(app.picker.len().saturating_sub(1)),
-            ));
+            state.select(if visible.is_empty() {
+                None
+            } else {
+                Some(app.picker_index.min(visible.len() - 1))
+            });
             frame.render_stateful_widget(list, inner, &mut state);
         }
         Overlay::Permission => {

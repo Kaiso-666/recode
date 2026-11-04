@@ -74,6 +74,8 @@ def main():
     parser.add_argument("--question", action="store_true")
     parser.add_argument("--write", action="store_true")
     parser.add_argument("--undo", action="store_true")
+    parser.add_argument("--complete", action="store_true")
+    parser.add_argument("--search", action="store_true")
     parser.add_argument(
         "--expect-file",
         help="After --undo, assert this file contains the given text as --expect-text.",
@@ -94,7 +96,15 @@ def main():
         prompt = "ask me something" if args.question else "read a.txt"
         if args.write:
             prompt = "write a.txt"
-        session.send(prompt + "\r")
+        if args.complete:
+            session.send("read @a")
+            if not session.wait_for("a.txt", timeout=10):
+                failures.append("@file completion did not appear")
+            session.send("\t")
+            time.sleep(0.3)
+            session.send("\r")
+        else:
+            session.send(prompt + "\r")
         if args.permission:
             if not session.wait_for("permission", timeout=15):
                 failures.append("permission modal did not appear")
@@ -112,6 +122,17 @@ def main():
         )
         if not session.wait_for(expected, timeout=20):
             failures.append("assistant reply did not render")
+        if args.search:
+            session.send("\x1bOS")  # F4
+            time.sleep(0.5)
+            session.send("zzz")
+            # The title shrinks/grows one cell at a time, so the raw ConPTY
+            # stream contains only the changed suffix (for example `[z]`).
+            if not session.wait_for("[z", timeout=10):
+                failures.append("session search filter did not render")
+            session.send("\x15")  # Ctrl+U clears the filter
+            time.sleep(0.3)
+            session.send("\x1b")
         if args.undo:
             session.send("/undo\r")
             if not session.wait_for("restored files", timeout=15):
