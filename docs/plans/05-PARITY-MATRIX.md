@@ -7,8 +7,8 @@ Status legend: `missing` · `partial` · `done` · `n/a` (explicit non-goal)
 | opencode package | Re:Code crate/module | Status | Notes |
 |---|---|---|---|
 | `schema` | `recode-schema` | done | Core message/part/tool/llm/config types; v1/compat schemas intentionally skipped |
-| `core` | `recode-core` + `recode-tool` + `recode-storage` | partial | Runner, config, agents, permissions, compaction, subagents, snapshots, LSP, MCP; formatter hooks pending |
-| `ai` | `recode-provider` | partial | Canonical LLM events; anthropic/openai-compatible (Gemini via OpenAI endpoint) |
+| `core` | `recode-core` + `recode-tool` + `recode-storage` | partial | Runner, config, agents, permissions, compaction, subagents, snapshots, LSP, MCP, opt-in formatters |
+| `ai` | `recode-provider` | partial | Canonical LLM events; anthropic/openai-compatible (Gemini via OpenAI endpoint); OpenCode Zen free tier |
 | `server` | `recode-server` | done | axum + SSE, permission/question brokers, file + model/agent + compact routes |
 | `cli` | `recode-cli` | done | run/tui/serve/auth/models/sessions/config; `--server` attach |
 | `tui` | `recode-tui` | done | local + attach modes, `@file`, session search, modals |

@@ -1,10 +1,12 @@
 pub mod auth;
+pub mod completions;
 pub mod config;
 pub mod models;
 pub mod run;
 pub mod serve;
 pub mod sessions;
 pub mod tui;
+pub mod upgrade;
 
 use crate::cli::RunArgs;
 use recode_core::paths::RecodePaths;

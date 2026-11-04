@@ -67,7 +67,6 @@
 - `input.rs` — keybinds, paste, history, cursor editing.
 
 ## recode-cli
-- `main.rs` — clap, telemetry init, dispatch.
+- `main.rs` — clap, shorthand rewriting, runtime, dispatch.
 - `cmd/run.rs`, `cmd/tui.rs`, `cmd/serve.rs`, `cmd/auth.rs`, `cmd/models.rs`,
-  `cmd/sessions.rs`, `cmd/mcp.rs`, `cmd/lsp.rs`, `cmd/upgrade.rs`.
-- `output.rs` — non-interactive formatting (text/json).
+  `cmd/sessions.rs`, `cmd/config.rs`, `cmd/completions.rs`, `cmd/upgrade.rs`.

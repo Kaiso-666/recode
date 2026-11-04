@@ -4,12 +4,14 @@ Last updated: 2026-11-04 (verified build)
 
 ## Current state
 
-**Phase:** M2–M7 complete; M5 attach mode complete; M8 polishing remains.
+**Phase:** M2–M8 complete (signing/benchmarks pending); M9 opencode parity started
+with the OpenCode Zen free tier.
 
 ```
-cargo test --workspace       89 passed, 0 failed
+cargo test --workspace       94 passed, 0 failed
 cargo clippy --workspace --all-targets -- -D warnings   clean
 cargo fmt --all --check       clean
+cargo build --release --locked --bin recode             verified (16m51s)
 ```
 
 ### Milestones
@@ -24,7 +26,8 @@ cargo fmt --all --check       clean
 | M5 server | ✅ done | axum API + SSE verified with curl; bearer auth; permission and question brokers; `recode-client`; TUI/CLI attach (`--server`) verified in ConPTY |
 | M6 LSP/MCP | ✅ done | on-demand LSP diagnostics in tool results; MCP stdio + streamable HTTP tools (`mcp__*`); opt-in formatter hooks |
 | M7 sessions at scale | ✅ done | compaction; fork/revert; shadow-git snapshots + file restore; patch tracking; JSON/Markdown export |
-| M8 polish | ⬜ missing | — |
+| M8 polish | 🟡 release plumbing | installers, completions, checksum-verified upgrade, release workflow, docs; release profile builds; signing/benchmarks pending |
+| M9 parity | 🟡 started | OpenCode Zen provider with free models (`opencode/big-pickle` and the current free set) works without an account; models.dev catalog and device OAuth next |
 
 ### Verified end-to-end
 
@@ -82,12 +85,30 @@ cargo fmt --all --check       clean
   returned to the model). `recode run --server URL --auto "…"` streams the assistant text
   and prints usage (text and JSON modes verified).
 - `config show` redacts credentials; `config rebuild` replays the event log.
+- Release plumbing: `recode completions <shell>` emits clap-generated scripts (1,268 lines
+  for bash; PowerShell/zsh/fish verified to produce output). `recode upgrade --check` and
+  `recode upgrade --yes` were exercised against a local GitHub-shaped API: lookup, checksum
+  verification, and self-replacement on Windows all succeeded. `script/install.ps1`,
+  `script/install.sh`, and `script/package.ps1` are in place, and
+  `.github/workflows/release.yml` builds win/linux/macOS artifacts on a tag. The release
+  profile (`--release --locked --bin recode`, thin LTO) built and the binary ran
+  (`recode 0.1.0`) after `CARGO_BUILD_JOBS=1`; the earlier `lib.exe 0xc0000142` failure was
+  concurrency-related and did not recur.
+- OpenCode Zen free tier: the built-in `opencode` provider targets
+  `https://opencode.ai/inference/openai/v1`, lists the current free model set, and falls
+  back to the literal free key `public` when no credential exists. `recode models` shows
+  `opencode/big-pickle` and the others; bare `--model big-pickle` resolves too.
+  `OPENCODE_DISABLE_FREE_MODELS=1` disables the fallback. The endpoint accepts the key; a
+  live request from this machine returned the service's `FreeUsageLimitError`, so a
+  successful free completion could not be captured here. Unit tests cover the wiring.
 
 ## Next actions (in order)
 
-1. Release plumbing: installer, shell completions, benchmarks.
-2. M8 polish: docs, error-message pass, performance checks.
+1. M9 parity: models.dev catalog (all providers/models, cached snapshot), then OpenCode
+   Console device OAuth for paid Zen models and `recode auth login opencode`.
+2. Benchmark numbers (`script/bench.ps1`) on the release binary; wire benchmarks into CI.
 3. TUI attach over SSE (replace 4–20 Hz polling) and `sessions --server`.
+4. Signed release binaries and parser fuzz tests.
 
 ## Known issues / gotchas
 
@@ -95,6 +116,10 @@ cargo fmt --all --check       clean
   rustup as custom toolchain `local`. `rustup default local` is required. Clippy and
   rustfmt were copied into that toolchain's `bin`. Cargo uses the rsproxy sparse mirror
   (`~/.cargo/config.toml`); the network to static.rust-lang.org is throttled to ~20 KB/s.
+- **Release builds:** use `CARGO_BUILD_JOBS=1` on this machine. The parallel build once
+  failed in `cc-rs` with `lib.exe` status `0xc0000142` (`STATUS_DLL_INIT_FAILED`); the
+  serial build completed in 16m51s. PowerShell treats cargo's stderr progress as an error
+  record, so run builds through `cmd /c` or ignore the `NativeCommandError` wrapper.
 - **Windows paths:** `Project::discover` canonicalizes to `\\?\C:\...`. Tool path checks
   strip the verbatim prefix and compare case-insensitively (`recode_tool::is_within`).
 - **Config BOM:** PowerShell `Set-Content -Encoding utf8` writes a BOM; `jsonc::normalize`

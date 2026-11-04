@@ -58,7 +58,18 @@ Each milestone ends with a green `cargo test` and a usable binary. No milestone 
 - **Exit:** compact a 200k-token session; revert a file to pre-edit state. ✅ (file restore verified end to end; large-session budget exercised with the compaction fixture)
 
 ## M8 — Polish / release
-- [ ] Windows installer, shell completions, `recode upgrade`.
-- [ ] Benchmarks (startup, RSS, tokens/s overhead), fuzz SSE/config parsers.
-- [ ] Docs site content, examples, CONTRIBUTING.
-- **Exit:** signed release binaries for win/mac/linux; v1.0.0 tag.
+- [x] Windows/macOS/Linux installers, shell completions, `recode upgrade` (SHA-256 verified).
+- [x] GitHub release workflow publishing per-platform binaries.
+- [x] Docs: `docs/config.md`, `docs/tools.md`, `CONTRIBUTING.md`, examples.
+- [x] Release profile builds and runs locally (`--release --locked`, thin LTO).
+- [ ] Benchmarks in CI, fuzz SSE/config parsers, signed binaries.
+- **Exit:** signed release binaries for win/mac/linux; v1.0.0 tag. 🟡 (unsigned artifacts; signing key pending)
+
+## M9 — opencode parity
+- [x] OpenCode Zen provider: current free models, automatic `public` key when no credential,
+  `OPENCODE_DISABLE_FREE_MODELS` switch, picker + bare model ids.
+- [ ] models.dev catalog: fetch and cache the provider/model snapshot; surface every
+  protocol Re:Code can speak.
+- [ ] OpenCode Console device OAuth for paid Zen models, with token refresh.
+- [ ] Diff the CLI/config/TUI surface against the upstream fork and close gaps.
+- **Exit:** an opencode user can move their config and habits over without surprises.

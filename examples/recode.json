@@ -1,0 +1,39 @@
+{
+  // Copy to <project>/recode.json and edit. See docs/config.md for every field.
+  "model": "anthropic/claude-sonnet-4-20250514",
+  "smallModel": "anthropic/claude-3-5-haiku-20241022",
+  "defaultAgent": "build",
+  "permission": {
+    "read": "allow",
+    "edit": "ask",
+    "bash": {
+      "git status*": "allow",
+      "git diff*": "allow",
+      "*": "ask"
+    },
+    "webfetch": "ask",
+    "mcp": "ask"
+  },
+  "provider": {
+    "local": {
+      "api": "openai",
+      "options": {
+        "baseUrl": "http://127.0.0.1:11434/v1",
+        "apiKey": "ollama"
+      },
+      "models": {
+        "qwen2.5-coder:14b": {
+          "name": "Qwen 2.5 Coder 14B",
+          "limit": { "context": 32768, "output": 8192 }
+        }
+      }
+    }
+  },
+  "lsp": {
+    "rust": { "enabled": true }
+  },
+  "formatter": {
+    "rustfmt": { "enabled": true }
+  },
+  "snapshot": true
+}

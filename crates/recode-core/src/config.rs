@@ -100,6 +100,7 @@ impl ConfigManager {
             ("openai", "gpt-5"),
             ("deepseek", "deepseek-chat"),
             ("gemini", "gemini-2.5-pro"),
+            ("opencode", "big-pickle"),
             ("ollama", "qwen2.5-coder:7b"),
         ];
         for (provider, model) in defaults {
@@ -114,11 +115,18 @@ impl ConfigManager {
         if let Some(model) = ModelRef::parse(value) {
             return Ok(model);
         }
-        // Accept a bare model id when it is unique across configured providers.
+        // Accept a bare model id when it is unique across configured providers
+        // or a built-in provider's advertised models.
         let mut matches = Vec::new();
         for (provider_id, provider) in &self.merged.provider {
             if provider.models.contains_key(value) {
                 matches.push(ModelRef::new(provider_id.clone(), value));
+            }
+        }
+        for spec in recode_provider::registry::BUILTIN_PROVIDERS {
+            let known = spec.default_model == Some(value) || spec.models.contains(&value);
+            if known && !matches.iter().any(|model| model.provider_id == spec.id) {
+                matches.push(ModelRef::new(spec.id, value));
             }
         }
         match matches.len() {
@@ -151,7 +159,7 @@ impl ConfigManager {
             return true;
         }
         if let Some(spec) = recode_provider::registry::spec(provider) {
-            if spec.keyless {
+            if spec.keyless || recode_provider::registry::free_key(spec).is_some() {
                 return true;
             }
             if spec.env.iter().any(|name| std::env::var(name).is_ok()) {
@@ -180,9 +188,16 @@ impl ConfigManager {
                 .map(|config| config.models.keys().cloned().collect())
                 .unwrap_or_default();
             let models = if models.is_empty() {
-                spec.default_model
-                    .map(|model| vec![model.to_owned()])
-                    .unwrap_or_default()
+                if spec.models.is_empty() {
+                    spec.default_model
+                        .map(|model| vec![model.to_owned()])
+                        .unwrap_or_default()
+                } else {
+                    spec.models
+                        .iter()
+                        .map(|model| (*model).to_owned())
+                        .collect()
+                }
             } else {
                 models
             };
@@ -279,5 +294,36 @@ mod tests {
             .ruleset()
             .evaluate("bash", "ls")
             .is_some_and(|decision| decision == recode_schema::permission::Decision::Allow));
+    }
+
+    #[test]
+    fn opencode_free_models_are_listed_and_resolvable() {
+        let dir = tempfile::tempdir().unwrap();
+        let project_root = dir.path().join("project");
+        std::fs::create_dir_all(&project_root).unwrap();
+        let paths = RecodePaths {
+            config_dir: dir.path().join("config"),
+            data_dir: dir.path().join("data"),
+            db_path: dir.path().join("data/recode.db"),
+            auth_path: dir.path().join("config/auth.json"),
+            log_dir: dir.path().join("data/log"),
+            global_config: dir.path().join("config/recode.json"),
+        };
+        std::fs::create_dir_all(&paths.config_dir).unwrap();
+        let manager = ConfigManager::load(paths, &project_root);
+        let opencode = manager
+            .providers()
+            .into_iter()
+            .find(|provider| provider.id == "opencode")
+            .expect("opencode provider");
+        assert!(opencode.configured);
+        assert!(opencode.models.contains(&"big-pickle".to_owned()));
+        assert_eq!(
+            manager
+                .resolve_model(Some("big-pickle"))
+                .unwrap()
+                .qualified(),
+            "opencode/big-pickle"
+        );
     }
 }

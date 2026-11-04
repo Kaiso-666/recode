@@ -5,12 +5,38 @@
 durable sessions, tools, permissions, LSP, MCP, TUI and HTTP server — from TypeScript/Bun/Effect
 to a single async Rust binary.
 
+## Install
+
+Windows (PowerShell):
+
+```powershell
+irm https://raw.githubusercontent.com/Kaiso-666/recode/main/script/install.ps1 | iex
 ```
-cargo install --path crates/recode-cli
+
+Linux / macOS:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Kaiso-666/recode/main/script/install.sh | sh
+```
+
+From a checkout:
+
+```sh
+cargo install --path crates/recode-cli --locked
 recode
 ```
 
-> Status: early development. See `docs/plans/07-STATUS.md` for the honest live state.
+`recode upgrade --check` reports the latest release; `recode upgrade` downloads,
+checks the SHA-256 sidecar, and replaces the binary.
+
+Shell completions:
+
+```sh
+recode completions bash   # also: zsh, fish, powershell, elvish
+```
+
+> Status: pre-1.0. See `docs/plans/07-STATUS.md` for the honest live state,
+> `docs/config.md` for configuration, and `docs/tools.md` for the tool set.
 
 ## Why
 
@@ -18,6 +44,8 @@ recode
 - **Startup in milliseconds.** Small RSS, predictable performance.
 - **Durable by design.** Every session is an append-only event log in SQLite.
 - **Provider neutral.** Anthropic, OpenAI-compatible endpoints, Gemini — same loop.
+- **Free models out of the box.** OpenCode Zen's free tier needs no account:
+  `recode run --model opencode/big-pickle "…"`.
 - **Safe tools.** Typed capabilities with allow/ask/deny rules and path sandboxing.
 
 ## Workspace

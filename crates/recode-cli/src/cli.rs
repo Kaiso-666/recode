@@ -30,6 +30,14 @@ pub enum Command {
     Sessions(SessionsArgs),
     /// Inspect configuration.
     Config(ConfigArgs),
+    /// Update the recode binary from GitHub releases.
+    Upgrade(UpgradeArgs),
+    /// Print shell completions to stdout.
+    Completions {
+        /// Shell to generate completions for.
+        #[arg(value_enum)]
+        shell: clap_complete::Shell,
+    },
 }
 
 #[derive(Args, Default)]
@@ -184,6 +192,22 @@ pub enum SessionsCommand {
     },
     /// Summarize older history so the session fits the model context.
     Compact { id: String },
+}
+
+#[derive(Args)]
+pub struct UpgradeArgs {
+    /// Only report whether an update exists.
+    #[arg(long)]
+    pub check: bool,
+    /// Install a specific release tag instead of the latest.
+    #[arg(long)]
+    pub tag: Option<String>,
+    /// GitHub repository that publishes releases.
+    #[arg(long, default_value = "Kaiso-666/recode")]
+    pub repo: String,
+    /// Do not ask for confirmation.
+    #[arg(long)]
+    pub yes: bool,
 }
 
 #[derive(Args)]
