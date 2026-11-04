@@ -4,10 +4,10 @@ Last updated: 2026-11-04 (verified build)
 
 ## Current state
 
-**Phase:** M2–M7 complete; M5 attach mode and M8 polishing remain.
+**Phase:** M2–M7 complete; M5 attach mode complete; M8 polishing remains.
 
 ```
-cargo test --workspace       90 passed, 0 failed
+cargo test --workspace       89 passed, 0 failed
 cargo clippy --workspace --all-targets -- -D warnings   clean
 cargo fmt --all --check       clean
 ```
@@ -21,7 +21,7 @@ cargo fmt --all --check       clean
 | M2 tools | ✅ done | bash, read, write, edit, multi_edit, patch, ls, glob, grep, webfetch, todowrite, task (subagent), question (TUI modal + HTTP broker) |
 | M3 config/agents | ✅ done | JSONC (+BOM), JSONC merge, 4 built-in agents, AGENTS.md/CLAUDE.md, auth store |
 | M4 TUI | ✅ verified | transcript, streaming markdown-lite, editor, pickers, permission modal, todo strip — driven in a real ConPTY (`script/tui_smoke.py`), including the approval modal |
-| M5 server | ✅ core | axum API + SSE verified with curl; bearer auth; permission broker (`GET /api/permissions`, `POST /api/permissions/{id}`) verified end to end |
+| M5 server | ✅ done | axum API + SSE verified with curl; bearer auth; permission and question brokers; `recode-client`; TUI/CLI attach (`--server`) verified in ConPTY |
 | M6 LSP/MCP | ✅ done | on-demand LSP diagnostics in tool results; MCP stdio + streamable HTTP tools (`mcp__*`); opt-in formatter hooks |
 | M7 sessions at scale | ✅ done | compaction; fork/revert; shadow-git snapshots + file restore; patch tracking; JSON/Markdown export |
 | M8 polish | ⬜ missing | — |
@@ -75,13 +75,19 @@ cargo fmt --all --check       clean
   --complete`, which types `read @a`, accepts the completion, and gets the mock reply).
 - TUI session search: F4 opens the session picker and typing filters by title or id
   (`Ctrl+U` clears); verified in the ConPTY smoke test (`--search`).
+- Attach mode: `recode tui --server URL --token T` runs the same TUI against
+  `recode serve`. The client loads a snapshot, polls the API while busy, and answers
+  permission/question requests through the HTTP brokers. Verified in ConPTY for a normal
+  prompt, a `write` behind an `ask` rule (y → tool runs), and a `question` (Enter → answer
+  returned to the model). `recode run --server URL --auto "…"` streams the assistant text
+  and prints usage (text and JSON modes verified).
 - `config show` redacts credentials; `config rebuild` replays the event log.
 
 ## Next actions (in order)
 
-1. M5 remainder: TUI/CLI `--server` attach mode.
-2. Release plumbing: installer, shell completions, benchmarks.
-3. M8 polish: benchmarks, docs, error-message pass.
+1. Release plumbing: installer, shell completions, benchmarks.
+2. M8 polish: docs, error-message pass, performance checks.
+3. TUI attach over SSE (replace 4–20 Hz polling) and `sessions --server`.
 
 ## Known issues / gotchas
 
@@ -136,12 +142,24 @@ cargo fmt --all --check       clean
   (`{"rustfmt": {"enabled": true}}`). The file path is appended as the last argument and
   commands time out after 15 s. Missing binaries are remembered for the process.
   Formatting runs before LSP diagnostics, so diagnostics reflect the formatted file.
+- **Attach mode:** `recode tui --server …` (the `tui` subcommand is required; top-level
+  flags are not global). The client polls; while busy it refreshes every ~320 ms, when
+  idle every ~1.6 s. Polling replaces the rendered transcript from the server, so remote
+  streaming is chunky but durable events are never lost. Server-side permissions/questions
+  appear as normal modals and replies go through `POST /api/permissions|questions/{id}`.
+  `@file` completion uses `GET /api/files`; submitting expands files with
+  `GET /api/files/content`, so the TUI can run on a different machine. `run --server`
+  rejects `--file` and, without `--auto`, rejects tool approvals (use the TUI to attach
+  interactively).
 
 ## Architecture notes
 
 - `Engine` owns `Store`, `ConfigManager`, `Project`, `AgentRegistry`, `ToolRegistry`,
   `Providers`, `PermissionService`, `QuestionService`, `SnapshotService`, `LspManager`,
-  `McpManager`, a broadcast bus, and the active-run map.
+  `McpManager`, `FormatterService`, a broadcast bus, and the active-run map.
+- `recode-client` is the HTTP facade used by attach clients; the TUI's `Backend` wraps
+  either an `Arc<Engine>` or a cached `Client`, so the app renders one session model in
+  both modes. Writes are async; reads come from the cache or SQLite synchronously.
 - Every durable write goes through `Store::append`/`append_batch`; projections update in the
   same SQLite transaction. `Store::rebuild` replays the log.
 - The runner creates one assistant message per step; tool results live in `ToolPart.state`

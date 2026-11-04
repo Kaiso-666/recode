@@ -16,6 +16,7 @@ path = "src/main.rs"
 recode-schema = { workspace = true }
 recode-storage = { workspace = true }
 recode-core = { workspace = true }
+recode-client = { workspace = true }
 recode-provider = { workspace = true }
 recode-server = { workspace = true }
 recode-tui = { workspace = true }

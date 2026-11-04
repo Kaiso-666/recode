@@ -9,11 +9,11 @@ Status legend: `missing` · `partial` · `done` · `n/a` (explicit non-goal)
 | `schema` | `recode-schema` | done | Core message/part/tool/llm/config types; v1/compat schemas intentionally skipped |
 | `core` | `recode-core` + `recode-tool` + `recode-storage` | partial | Runner, config, agents, permissions, compaction, subagents, snapshots, LSP, MCP; formatter hooks pending |
 | `ai` | `recode-provider` | partial | Canonical LLM events; anthropic/openai-compatible (Gemini via OpenAI endpoint) |
-| `server` | `recode-server` | partial | axum + SSE + permission broker; no editor clients yet |
-| `cli` | `recode-cli` | done | run/tui/serve/auth/models/sessions/config |
-| `tui` | `recode-tui` | partial | ratatui app verified in ConPTY; `@file`, search pending |
-| `protocol` | `recode-server::routes` | partial | Reimplemented public HTTP surface, not exact |
-| `client` | internal `EngineClient` | missing | Rust trait, no codegen |
+| `server` | `recode-server` | done | axum + SSE, permission/question brokers, file + model/agent + compact routes |
+| `cli` | `recode-cli` | done | run/tui/serve/auth/models/sessions/config; `--server` attach |
+| `tui` | `recode-tui` | done | local + attach modes, `@file`, session search, modals |
+| `protocol` | `recode-server` | partial | Reimplemented public HTTP surface, not exact |
+| `client` | `recode-client` | done | Typed HTTP client used by TUI/CLI attach; no codegen |
 | `sdk` | n/a | n/a | No JS SDK in v1 |
 | `web`, `app`, `desktop`, `console`, `stats` | n/a | n/a | Out of scope |
 | `plugin`, `plugins` | `recode-core::hooks` | missing | Rust traits + MCP; no JS sandbox |

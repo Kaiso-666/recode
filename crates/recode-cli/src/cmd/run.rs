@@ -18,6 +18,9 @@ use std::time::Duration;
 
 pub async fn run(args: RunArgs) -> anyhow::Result<()> {
     cmd::validate_run(&args)?;
+    if let Some(server) = args.server.clone() {
+        return run_remote(server, args).await;
+    }
     cmd::init_logging(false);
     let paths = cmd::paths();
     let directory = cmd::directory(args.directory.clone())?;
@@ -479,4 +482,181 @@ fn final_text(messages: &[recode_schema::message::Message]) -> String {
         .find(|message| message.info.role == Role::Assistant)
         .map(|message| message.text())
         .unwrap_or_default()
+}
+async fn run_remote(server: String, args: RunArgs) -> anyhow::Result<()> {
+    if !args.file.is_empty() {
+        anyhow::bail!(
+            "--file is not supported with --server yet; attach with the TUI to send files"
+        );
+    }
+    cmd::init_logging(false);
+    let json = args.format == "json";
+    let client = recode_client::Client::new(server, args.token.clone());
+    client.health().await.map_err(anyhow::Error::msg)?;
+
+    let mut prompt = args.message.join(" ");
+    if prompt.trim().is_empty() {
+        prompt = cmd::read_stdin_if_piped().unwrap_or_default();
+    }
+    if prompt.trim().is_empty() {
+        anyhow::bail!("you must provide a message");
+    }
+
+    let session = match &args.session {
+        Some(id) => {
+            let id = recode_schema::SessionId::from_existing(id.clone());
+            client
+                .session(&id.0)
+                .await
+                .map_err(anyhow::Error::msg)?
+                .session
+        }
+        None if args.continue_session => client
+            .sessions(true)
+            .await
+            .map_err(anyhow::Error::msg)?
+            .into_iter()
+            .next()
+            .context("there are no sessions to continue")?,
+        None => client
+            .create_session(args.agent.clone(), args.model.clone(), args.title.clone())
+            .await
+            .map_err(anyhow::Error::msg)?,
+    };
+    if json {
+        emit_json(&serde_json::json!({
+            "type": "session",
+            "sessionId": session.id.0,
+        }));
+    }
+    client
+        .prompt(&session.id.0, &prompt)
+        .await
+        .map_err(anyhow::Error::msg)?;
+
+    let started = std::time::Instant::now();
+    let mut last_message: Option<String> = None;
+    let mut printed = 0usize;
+    loop {
+        if args.timeout > 0 && started.elapsed() >= Duration::from_secs(args.timeout) {
+            client.abort(&session.id.0).await.ok();
+            eprintln!("\n[aborted after {} seconds]", args.timeout);
+            break;
+        }
+        answer_pending_requests(&client, &session.id.0, args.auto).await?;
+        let snapshot = client
+            .session(&session.id.0)
+            .await
+            .map_err(anyhow::Error::msg)?;
+        let messages = client
+            .messages(&session.id.0)
+            .await
+            .map_err(anyhow::Error::msg)?;
+        if let Some(message) = messages
+            .iter()
+            .rev()
+            .find(|message| message.info.role == Role::Assistant)
+        {
+            if last_message.as_deref() != Some(message.info.id.0.as_str()) {
+                last_message = Some(message.info.id.0.clone());
+                printed = 0;
+            }
+            let text = message.text();
+            if text.len() > printed {
+                let delta = &text[printed..];
+                if json {
+                    emit_json(&serde_json::json!({
+                        "type": "delta",
+                        "sessionId": session.id.0,
+                        "delta": delta,
+                    }));
+                } else {
+                    print!("{delta}");
+                    let _ = std::io::stdout().flush();
+                }
+                printed = text.len();
+            }
+        }
+        if !snapshot.busy {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+
+    let messages = client
+        .messages(&session.id.0)
+        .await
+        .map_err(anyhow::Error::msg)?;
+    let usage = total_usage(&messages);
+    let text = final_text(&messages);
+    if json {
+        emit_json(&serde_json::json!({
+            "type": "result",
+            "sessionId": session.id.0,
+            "text": text,
+            "usage": usage,
+        }));
+    } else {
+        if printed > 0 {
+            println!();
+        }
+        println!(
+            "— tokens: {} in / {} out · ${:.4}",
+            usage.input_tokens, usage.output_tokens, usage.cost
+        );
+    }
+    Ok(())
+}
+
+/// Answer approvals while a remote run is in flight. `--auto` approves
+/// everything; without it tools that require approval are rejected, because a
+/// headless CLI has no reliable way to ask (use the TUI to attach instead).
+async fn answer_pending_requests(
+    client: &recode_client::Client,
+    session: &str,
+    auto: bool,
+) -> anyhow::Result<()> {
+    for request in client
+        .pending_permissions(session)
+        .await
+        .map_err(anyhow::Error::msg)?
+    {
+        let reply = if auto {
+            PermissionReply::Always
+        } else {
+            PermissionReply::Reject
+        };
+        client
+            .reply_permission(&request.id, reply)
+            .await
+            .map_err(anyhow::Error::msg)?;
+    }
+    for request in client
+        .pending_questions(session)
+        .await
+        .map_err(anyhow::Error::msg)?
+    {
+        let reply = if auto {
+            QuestionReply::Answer {
+                answers: request
+                    .questions
+                    .iter()
+                    .map(|question| {
+                        question
+                            .options
+                            .first()
+                            .map(|option| vec![option.label.clone()])
+                            .unwrap_or_default()
+                    })
+                    .collect(),
+            }
+        } else {
+            QuestionReply::Reject
+        };
+        client
+            .reply_question(&request.id, reply)
+            .await
+            .map_err(anyhow::Error::msg)?;
+    }
+    Ok(())
 }

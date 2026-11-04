@@ -44,6 +44,9 @@ impl Server {
         Router::new()
             .route("/health", get(health))
             .route("/api/providers", get(providers))
+            .route("/api/agents", get(agents))
+            .route("/api/files", get(files))
+            .route("/api/files/content", get(file_content))
             .route("/api/sessions", get(list_sessions).post(create_session))
             .route(
                 "/api/sessions/{id}",
@@ -52,6 +55,9 @@ impl Server {
             .route("/api/sessions/{id}/messages", get(messages))
             .route("/api/sessions/{id}/prompt", post(prompt))
             .route("/api/sessions/{id}/abort", post(abort))
+            .route("/api/sessions/{id}/model", post(set_model))
+            .route("/api/sessions/{id}/agent", post(set_agent))
+            .route("/api/sessions/{id}/compact", post(compact))
             .route("/api/sessions/{id}/fork", post(fork_session))
             .route("/api/sessions/{id}/revert", post(revert_session))
             .route("/api/sessions/{id}/events", get(session_events))
@@ -143,6 +149,58 @@ struct ListQuery {
     archived: bool,
 }
 
+async fn agents(State(state): State<AppState>) -> Json<Value> {
+    let agents: Vec<Value> = state
+        .engine
+        .agents
+        .list()
+        .map(|agent| {
+            json!({
+                "id": agent.id,
+                "name": agent.name,
+                "description": agent.description,
+            })
+        })
+        .collect();
+    Json(json!({ "agents": agents }))
+}
+
+async fn files(State(state): State<AppState>) -> Json<Value> {
+    let files = recode_tool::list_files(&state.engine.project.root, 5_000);
+    Json(json!({ "files": files }))
+}
+
+#[derive(Deserialize)]
+struct FileQuery {
+    path: String,
+}
+
+async fn file_content(
+    State(state): State<AppState>,
+    Query(query): Query<FileQuery>,
+) -> Result<Json<Value>, ApiError> {
+    let root = recode_tool::canonicalish(&state.engine.project.root);
+    let path = root.join(&query.path);
+    let path = recode_tool::canonicalish(&path);
+    if !recode_tool::is_within(&path, &root) {
+        return Err(ApiError::bad_request("path escapes the project directory"));
+    }
+    if !path.is_file() {
+        return Err(ApiError::not_found("file not found"));
+    }
+    let metadata =
+        std::fs::metadata(&path).map_err(|error| ApiError::bad_request(error.to_string()))?;
+    if metadata.len() > 256 * 1024 {
+        return Err(ApiError::bad_request("file is larger than 256 KiB"));
+    }
+    let content =
+        std::fs::read_to_string(&path).map_err(|error| ApiError::bad_request(error.to_string()))?;
+    if content.contains('\0') {
+        return Err(ApiError::bad_request("file is binary"));
+    }
+    Ok(Json(json!({ "path": query.path, "content": content })))
+}
+
 async fn list_sessions(
     State(state): State<AppState>,
     Query(query): Query<ListQuery>,
@@ -191,12 +249,14 @@ async fn get_session(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
+    let session_id = SessionId::from_existing(id);
+    let busy = state.engine.is_busy(&session_id);
     let session = state
         .engine
-        .session(&SessionId::from_existing(id))
+        .session(&session_id)
         .map_err(ApiError::bad_request)?
         .ok_or_else(|| ApiError::not_found("session not found"))?;
-    Ok(Json(json!({"session": session})))
+    Ok(Json(json!({"session": session, "busy": busy})))
 }
 
 async fn delete_session(
@@ -261,6 +321,71 @@ async fn prompt(
 async fn abort(State(state): State<AppState>, Path(id): Path<String>) -> Json<Value> {
     let aborted = state.engine.abort(&SessionId::from_existing(id));
     Json(json!({"aborted": aborted}))
+}
+
+#[derive(Deserialize)]
+struct ModelRequest {
+    model: String,
+}
+
+async fn set_model(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(body): Json<ModelRequest>,
+) -> Result<Json<Value>, ApiError> {
+    let model = state
+        .engine
+        .config
+        .resolve_model(Some(&body.model))
+        .map_err(ApiError::bad_request)?;
+    state
+        .engine
+        .set_model(&SessionId::from_existing(id), model)
+        .map_err(ApiError::bad_request)?;
+    Ok(Json(json!({"ok": true})))
+}
+
+#[derive(Deserialize)]
+struct AgentRequest {
+    agent: String,
+}
+
+async fn set_agent(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(body): Json<AgentRequest>,
+) -> Result<Json<Value>, ApiError> {
+    if state.engine.agents.get(&body.agent).is_none() {
+        return Err(ApiError::bad_request(format!(
+            "unknown agent {:?}",
+            body.agent
+        )));
+    }
+    state
+        .engine
+        .set_agent(&SessionId::from_existing(id), &body.agent)
+        .map_err(ApiError::bad_request)?;
+    Ok(Json(json!({"ok": true})))
+}
+
+async fn compact(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    let record = state
+        .engine
+        .compact(&SessionId::from_existing(id))
+        .await
+        .map_err(ApiError::bad_request)?;
+    Ok(Json(match record {
+        Some(record) => json!({
+            "compacted": true,
+            "tokensBefore": record.tokens_before,
+            "tokensAfter": record.tokens_after,
+            "through": record.through,
+        }),
+        None => json!({"compacted": false}),
+    }))
 }
 
 #[derive(Deserialize, Default)]
@@ -459,10 +584,17 @@ async fn openapi() -> Json<Value> {
         "paths": {
             "/health": {"get": {"operationId": "health"}},
             "/api/providers": {"get": {"operationId": "providers"}},
+            "/api/agents": {"get": {"operationId": "agents"}},
+            "/api/files": {"get": {"operationId": "files.list"}},
+            "/api/files/content": {"get": {"operationId": "files.content"}},
             "/api/sessions": {"get": {"operationId": "sessions.list"}, "post": {"operationId": "sessions.create"}},
+            "/api/sessions/{id}": {"get": {"operationId": "sessions.get"}, "delete": {"operationId": "sessions.delete"}},
             "/api/sessions/{id}/messages": {"get": {"operationId": "sessions.messages"}},
             "/api/sessions/{id}/prompt": {"post": {"operationId": "sessions.prompt"}},
             "/api/sessions/{id}/abort": {"post": {"operationId": "sessions.abort"}},
+            "/api/sessions/{id}/model": {"post": {"operationId": "sessions.model"}},
+            "/api/sessions/{id}/agent": {"post": {"operationId": "sessions.agent"}},
+            "/api/sessions/{id}/compact": {"post": {"operationId": "sessions.compact"}},
             "/api/sessions/{id}/fork": {"post": {"operationId": "sessions.fork"}},
             "/api/sessions/{id}/revert": {"post": {"operationId": "sessions.revert"}},
             "/api/sessions/{id}/events": {"get": {"operationId": "sessions.events"}},

@@ -11,6 +11,7 @@ repository.workspace = true
 [dependencies]
 recode-schema = { workspace = true }
 recode-core = { workspace = true }
+recode-client = { workspace = true }
 recode-tool = { workspace = true }
 async-trait = { workspace = true }
 anyhow = { workspace = true }

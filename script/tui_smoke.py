@@ -10,6 +10,8 @@ Requires pywinpty. The provider must be running (script/mock_provider.py).
 import argparse
 import os
 import re
+import subprocess
+import shlex
 import sys
 import threading
 import time
@@ -77,6 +79,11 @@ def main():
     parser.add_argument("--complete", action="store_true")
     parser.add_argument("--search", action="store_true")
     parser.add_argument(
+        "--extra",
+        default="",
+        help="Extra CLI arguments appended to the binary, e.g. --server URL --token T.",
+    )
+    parser.add_argument(
         "--expect-file",
         help="After --undo, assert this file contains the given text as --expect-text.",
     )
@@ -88,7 +95,10 @@ def main():
     env["RECODE_DATA"] = args.data
     env["RECODE_LOG"] = "warn"
 
-    session = Session(args.binary, args.project, env)
+    command = args.binary
+    if args.extra:
+        command = subprocess.list2cmdline([args.binary] + shlex.split(args.extra))
+    session = Session(command, args.project, env)
     failures = []
     try:
         if not session.wait_for("Welcome to Re:Code"):

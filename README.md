@@ -29,8 +29,9 @@ recode
 | `recode-provider` | Anthropic / OpenAI-compatible / Gemini streaming clients |
 | `recode-tool` | Tool registry and built-in tools |
 | `recode-core` | Agent loop, sessions, config, permissions, LSP, MCP |
+| `recode-client` | Typed HTTP client for attach-mode clients |
 | `recode-server` | HTTP + SSE API |
-| `recode-tui` | Terminal UI |
+| `recode-tui` | Terminal UI (local or attached) |
 | `recode-cli` | `recode` binary |
 
 ## Development
@@ -44,6 +45,21 @@ cargo fmt
 
 Configuration lives at `<config>/recode/recode.json`; data at `<data>/recode/recode.db`.
 `RECODE_CONFIG`, `RECODE_DATA`, and `RECODE_LOG` override the locations.
+
+### Attach to a server
+
+`recode serve` owns the engine and can serve several clients. Run the TUI from
+another terminal or machine against that process:
+
+```
+recode serve --port 4096 --token secret      # one terminal
+recode tui --server http://127.0.0.1:4096 --token secret
+```
+
+The attached TUI shows the same sessions, streams local runs, and answers
+permission and question prompts over HTTP. `recode run --server URL --token T
+--auto "…"` is the headless equivalent; without `--auto` tool approvals are
+rejected. Tokens may also come from `RECODE_SERVER_TOKEN`.
 
 ### Language servers and MCP
 

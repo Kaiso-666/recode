@@ -41,8 +41,8 @@ Each milestone ends with a green `cargo test` and a usable binary. No milestone 
 - [x] axum API: sessions, messages, prompt, abort, config, providers, health, events SSE.
 - [x] auth token, CORS, request tracing, OpenAPI JSON stub.
 - [x] Server-side permission replies (`permission.asked` SSE + POST reply).
-- [ ] TUI/CLI can attach to `recode serve` via `--server`.
-- **Exit:** two clients observe one session live. 🟡
+- [x] TUI/CLI attach to `recode serve` via `--server` (`recode tui --server URL --token T`, `recode run --server URL`).
+- **Exit:** two clients observe one session live. ✅ (attach TUI polls the API and follows a server-side run; verified in ConPTY for prompts, permission and question modals)
 
 ## M6 — Code intelligence
 - [x] LSP manager: spawn per-project servers on demand, diagnostics after edits (built-ins for Rust, TypeScript, Python, Go, C/C++).

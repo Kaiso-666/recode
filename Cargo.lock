@@ -1338,6 +1338,7 @@ dependencies = [
  "chrono",
  "clap",
  "dirs",
+ "recode-client",
  "recode-core",
  "recode-provider",
  "recode-schema",
@@ -1349,6 +1350,16 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "recode-client"
+version = "0.1.0"
+dependencies = [
+ "recode-schema",
+ "reqwest",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -1420,6 +1431,7 @@ dependencies = [
  "recode-core",
  "recode-schema",
  "recode-storage",
+ "recode-tool",
  "serde",
  "serde_json",
  "tempfile",
@@ -1477,6 +1489,7 @@ dependencies = [
  "chrono",
  "crossterm",
  "ratatui",
+ "recode-client",
  "recode-core",
  "recode-schema",
  "recode-tool",

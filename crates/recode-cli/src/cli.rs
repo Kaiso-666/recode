@@ -49,6 +49,12 @@ pub struct TuiArgs {
     /// Approve all permission requests without prompting.
     #[arg(long)]
     pub auto: bool,
+    /// Attach to a running `recode serve` instead of opening the local engine.
+    #[arg(long)]
+    pub server: Option<String>,
+    /// Bearer token for --server (or RECODE_SERVER_TOKEN).
+    #[arg(long, env = "RECODE_SERVER_TOKEN")]
+    pub token: Option<String>,
 }
 
 #[derive(Args, Default)]
@@ -75,6 +81,12 @@ pub struct RunArgs {
     /// Approve all permission requests without prompting.
     #[arg(long)]
     pub auto: bool,
+    /// Send the prompt to a running `recode serve` instead of a local engine.
+    #[arg(long)]
+    pub server: Option<String>,
+    /// Bearer token for --server (or RECODE_SERVER_TOKEN).
+    #[arg(long, env = "RECODE_SERVER_TOKEN")]
+    pub token: Option<String>,
     /// Attach a file (repeatable). Images are sent as attachments; text files are inlined.
     #[arg(long, value_name = "FILE")]
     pub file: Vec<PathBuf>,

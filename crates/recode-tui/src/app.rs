@@ -1,14 +1,13 @@
+use crate::backend::{Backend, Poll};
 use crate::input::Input;
 use crate::AppEvent;
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseEvent, MouseEventKind};
-use recode_core::engine::Engine;
 use recode_schema::event::{DeltaKind, Event, LiveEvent, SessionInfo, SessionStatus};
 use recode_schema::message::Message;
 use recode_schema::part::Part;
 use recode_schema::permission::{PermissionReply, PermissionRequest};
 use recode_schema::question::{QuestionReply, QuestionRequest};
 use recode_schema::Role;
-use std::sync::Arc;
 use tokio::sync::oneshot;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -41,7 +40,14 @@ pub struct Completion {
 
 struct PendingPermission {
     request: PermissionRequest,
-    reply: oneshot::Sender<PermissionReply>,
+    reply: ReplyTarget,
+}
+
+enum ReplyTarget {
+    /// A local engine is waiting on the other end of the channel.
+    Local(oneshot::Sender<PermissionReply>),
+    /// The request lives in a remote server; replying is an HTTP call.
+    Remote,
 }
 
 /// Progress through a multi-question request. The answers collected so far are
@@ -55,7 +61,7 @@ pub struct QuestionProgress {
 }
 
 pub struct App {
-    pub engine: Arc<Engine>,
+    pub backend: Backend,
     pub session: SessionInfo,
     pub messages: Vec<Message>,
     pub input: Input,
@@ -79,17 +85,22 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(engine: Arc<Engine>, session_id: recode_schema::SessionId) -> Result<Self, String> {
-        let session = engine
-            .session(&session_id)?
+    pub fn new(backend: Backend, session_id: recode_schema::SessionId) -> Result<Self, String> {
+        let session = backend
+            .session(&session_id)
             .ok_or_else(|| "session not found".to_owned())?;
-        let messages = engine.messages(&session_id)?;
-        let mut app = Self {
-            engine,
+        let messages = backend.messages(&session_id)?;
+        let status = if backend.is_busy(&session_id) {
+            SessionStatus::Busy
+        } else {
+            SessionStatus::Idle
+        };
+        Ok(Self {
+            backend,
             session,
             messages,
             input: Input::new(),
-            status: SessionStatus::Idle,
+            status,
             overlay: Overlay::None,
             picker: Vec::new(),
             picker_index: 0,
@@ -106,19 +117,15 @@ impl App {
             question_state: None,
             completion: None,
             file_cache: Vec::new(),
-        };
-        if app.engine.is_busy(&app.session.id) {
-            app.status = SessionStatus::Busy;
-        }
-        Ok(app)
+        })
     }
 
     pub fn reload(&mut self) {
-        match self.engine.messages(&self.session.id) {
+        match self.backend.messages(&self.session.id) {
             Ok(messages) => self.messages = messages,
             Err(error) => self.set_notice(error),
         }
-        if let Ok(Some(session)) = self.engine.session(&self.session.id) {
+        if let Some(session) = self.backend.session(&self.session.id) {
             self.session = session;
         }
     }
@@ -151,10 +158,10 @@ impl App {
         self.session
             .agent
             .clone()
-            .unwrap_or_else(|| self.engine.config.default_agent())
+            .unwrap_or_else(|| "build".to_owned())
     }
 
-    pub fn on_tick(&mut self) {
+    pub async fn on_tick(&mut self) {
         self.tick = self.tick.wrapping_add(1);
         if let Some((_, remaining)) = &mut self.notice {
             if *remaining == 0 {
@@ -163,12 +170,99 @@ impl App {
                 *remaining -= 1;
             }
         }
+        if !self.backend.is_remote() {
+            return;
+        }
+        // Poll quickly while the model is working and slowly when idle, so an
+        // attached TUI follows another client's run without hammering the API.
+        let interval = if self.status == SessionStatus::Busy {
+            4
+        } else {
+            20
+        };
+        if self.tick % interval != 0 {
+            return;
+        }
+        match self.backend.poll(&self.session.id).await {
+            Ok(poll) => {
+                self.reload();
+                self.status = if self.backend.is_busy(&self.session.id) {
+                    SessionStatus::Busy
+                } else {
+                    SessionStatus::Idle
+                };
+                self.sync_remote_pending(poll);
+            }
+            Err(error) => {
+                if self.tick % 100 == 0 {
+                    self.set_notice(error);
+                }
+            }
+        }
+    }
+
+    /// Reconcile permission and question modals with the server's pending
+    /// lists. Another client may answer them first.
+    fn sync_remote_pending(&mut self, poll: Poll) {
+        let permission_ids: std::collections::HashSet<&str> = poll
+            .permissions
+            .iter()
+            .map(|request| request.id.as_str())
+            .collect();
+        self.pending.retain(|pending| match &pending.reply {
+            ReplyTarget::Remote => permission_ids.contains(pending.request.id.as_str()),
+            ReplyTarget::Local(_) => true,
+        });
+        for request in poll.permissions {
+            if !self
+                .pending
+                .iter()
+                .any(|pending| pending.request.id == request.id)
+            {
+                self.pending.push(PendingPermission {
+                    request,
+                    reply: ReplyTarget::Remote,
+                });
+            }
+        }
+        if !self.pending.is_empty() {
+            if self.overlay == Overlay::None {
+                self.overlay = Overlay::Permission;
+            }
+        } else if self.overlay == Overlay::Permission {
+            self.overlay = Overlay::None;
+        }
+
+        let question_ids: std::collections::HashSet<&str> = poll
+            .questions
+            .iter()
+            .map(|request| request.id.as_str())
+            .collect();
+        self.pending_questions
+            .retain(|request| question_ids.contains(request.id.as_str()));
+        for request in poll.questions {
+            if !self
+                .pending_questions
+                .iter()
+                .any(|pending| pending.id == request.id)
+            {
+                self.pending_questions.push(request);
+            }
+        }
+        if (self.question_state.is_none() && !self.pending_questions.is_empty())
+            || (self.pending_questions.is_empty() && self.overlay == Overlay::Question)
+        {
+            self.activate_question();
+        }
     }
 
     pub fn on_app_event(&mut self, event: AppEvent) {
         match event {
             AppEvent::Permission { request, reply } => {
-                self.pending.push(PendingPermission { request, reply });
+                self.pending.push(PendingPermission {
+                    request,
+                    reply: ReplyTarget::Local(reply),
+                });
                 if self.pending.len() == 1 {
                     self.overlay = Overlay::Permission;
                 }
@@ -271,8 +365,8 @@ impl App {
         let shift = key.modifiers.contains(KeyModifiers::SHIFT);
 
         if ctrl && key.code == KeyCode::Char('c') {
-            if self.engine.is_busy(&self.session.id) {
-                self.engine.abort(&self.session.id);
+            if self.status == SessionStatus::Busy || self.backend.is_busy(&self.session.id) {
+                self.backend.abort(&self.session.id).await;
                 self.set_notice("aborting…");
             } else {
                 self.should_quit = true;
@@ -314,8 +408,8 @@ impl App {
 
         match key.code {
             KeyCode::Esc => {
-                if self.engine.is_busy(&self.session.id) {
-                    self.engine.abort(&self.session.id);
+                if self.status == SessionStatus::Busy || self.backend.is_busy(&self.session.id) {
+                    self.backend.abort(&self.session.id).await;
                     self.set_notice("aborting…");
                 } else {
                     self.input.clear();
@@ -353,7 +447,7 @@ impl App {
             }
             KeyCode::F(2) => self.open_model_picker(),
             KeyCode::F(3) => self.open_agent_picker(),
-            KeyCode::F(4) => self.open_session_picker(),
+            KeyCode::F(4) => self.open_session_picker().await,
             KeyCode::Char('r') if ctrl => self.show_reasoning = !self.show_reasoning,
             KeyCode::Char(character) if !ctrl && !alt => self.input.insert_char(character),
             _ => {}
@@ -426,20 +520,37 @@ impl App {
                 _ => {}
             },
             Overlay::Permission => match key.code {
-                KeyCode::Char('y') | KeyCode::Enter => self.reply_permission(PermissionReply::Once),
-                KeyCode::Char('a') => self.reply_permission(PermissionReply::Always),
-                KeyCode::Char('n') | KeyCode::Esc => self.reply_permission(PermissionReply::Reject),
+                KeyCode::Char('y') | KeyCode::Enter => {
+                    self.reply_permission(PermissionReply::Once).await
+                }
+                KeyCode::Char('a') => self.reply_permission(PermissionReply::Always).await,
+                KeyCode::Char('n') | KeyCode::Esc => {
+                    self.reply_permission(PermissionReply::Reject).await
+                }
                 _ => {}
             },
-            Overlay::Question => self.on_question_key(key),
+            Overlay::Question => self.on_question_key(key).await,
             Overlay::None => {}
         }
     }
 
-    fn reply_permission(&mut self, reply: PermissionReply) {
+    async fn reply_permission(&mut self, reply: PermissionReply) {
         if !self.pending.is_empty() {
             let pending = self.pending.remove(0);
-            let _ = pending.reply.send(reply);
+            match pending.reply {
+                ReplyTarget::Local(reply_tx) => {
+                    let _ = reply_tx.send(reply);
+                }
+                ReplyTarget::Remote => {
+                    if let Err(error) = self
+                        .backend
+                        .reply_permission(&pending.request.id, reply)
+                        .await
+                    {
+                        self.set_notice(error);
+                    }
+                }
+            }
         }
         self.overlay = if self.pending.is_empty() {
             Overlay::None
@@ -475,7 +586,7 @@ impl App {
         self.overlay = Overlay::Question;
     }
 
-    fn on_question_key(&mut self, key: KeyEvent) {
+    async fn on_question_key(&mut self, key: KeyEvent) {
         let Some(request) = self.pending_questions.first().cloned() else {
             self.activate_question();
             return;
@@ -485,13 +596,13 @@ impl App {
             return;
         };
         let Some(question) = request.questions.get(progress.index) else {
-            self.finish_question(&request, QuestionReply::Reject);
+            self.finish_question(&request, QuestionReply::Reject).await;
             return;
         };
         let option_count = question.options.len();
         match key.code {
             KeyCode::Esc | KeyCode::Char('n') => {
-                self.finish_question(&request, QuestionReply::Reject);
+                self.finish_question(&request, QuestionReply::Reject).await;
                 return;
             }
             KeyCode::Up | KeyCode::Char('k') => {
@@ -549,7 +660,8 @@ impl App {
                     self.question_state = Some(progress);
                 } else {
                     let answers = progress.answers.clone();
-                    self.finish_question(&request, QuestionReply::Answer { answers });
+                    self.finish_question(&request, QuestionReply::Answer { answers })
+                        .await;
                 }
                 return;
             }
@@ -558,8 +670,10 @@ impl App {
         self.question_state = Some(progress);
     }
 
-    fn finish_question(&mut self, request: &QuestionRequest, reply: QuestionReply) {
-        let _ = self.engine.questions.reply(&request.id, reply);
+    async fn finish_question(&mut self, request: &QuestionRequest, reply: QuestionReply) {
+        if let Err(error) = self.backend.reply_question(&request.id, reply).await {
+            self.set_notice(error);
+        }
         if let Some(position) = self
             .pending_questions
             .iter()
@@ -581,7 +695,7 @@ impl App {
             self.handle_command(text.trim()).await;
             return;
         }
-        if self.engine.is_busy(&self.session.id) {
+        if self.status == SessionStatus::Busy || self.backend.is_busy(&self.session.id) {
             self.set_notice("session is busy — press Esc to abort");
             self.input.set_text(&text);
             return;
@@ -589,13 +703,9 @@ impl App {
         self.history.push(text.clone());
         self.history_pos = None;
         self.file_cache.clear();
-        let text = expand_file_references(&self.engine.project.root, text);
+        let text = self.backend.expand_file_references(text).await;
         self.status = SessionStatus::Busy;
-        if let Err(error) = self
-            .engine
-            .prompt(&self.session.id, text.clone(), Vec::new())
-            .await
-        {
+        if let Err(error) = self.backend.prompt(&self.session.id, text.clone()).await {
             self.set_notice(error);
             self.input.set_text(&text);
             self.status = SessionStatus::Idle;
@@ -612,7 +722,7 @@ impl App {
             return;
         };
         if self.file_cache.is_empty() {
-            self.file_cache = recode_tool::list_files(&self.engine.project.root, 5_000);
+            self.file_cache = self.backend.files();
         }
         let needle = prefix.to_ascii_lowercase();
         let mut items: Vec<String> = self
@@ -695,10 +805,8 @@ impl App {
             "/help" | "/?" => self.overlay = Overlay::Help,
             "/new" => {
                 let agent = self.session.agent.clone();
-                match self
-                    .engine
-                    .create_session(agent, self.session.model.clone(), None)
-                {
+                let model = self.session.model.as_ref().map(|model| model.qualified());
+                match self.backend.create_session(agent, model, None).await {
                     Ok(session) => {
                         self.session = session;
                         self.reload();
@@ -709,31 +817,28 @@ impl App {
                 }
             }
             "/model" if argument.is_empty() => self.open_model_picker(),
-            "/model" => match self.engine.config.resolve_model(Some(argument)) {
-                Ok(model) => {
-                    let label = model.qualified();
-                    if let Err(error) = self.engine.set_model(&self.session.id, model) {
-                        self.set_notice(error);
-                    } else {
-                        self.reload();
-                        self.set_notice(format!("model: {label}"));
-                    }
+            "/model" => {
+                if let Err(error) = self.backend.set_model(&self.session.id, argument).await {
+                    self.set_notice(error);
+                } else {
+                    self.reload();
+                    self.set_notice(format!("model: {argument}"));
                 }
-                Err(error) => self.set_notice(error),
-            },
+            }
             "/agent" if argument.is_empty() => self.open_agent_picker(),
             "/agent" => {
-                if self.engine.agents.get(argument).is_none() {
+                if !self.backend.has_agent(argument) {
                     self.set_notice(format!("unknown agent {argument:?}"));
-                } else if let Err(error) = self.engine.set_agent(&self.session.id, argument) {
+                } else if let Err(error) = self.backend.set_agent(&self.session.id, argument).await
+                {
                     self.set_notice(error);
                 } else {
                     self.reload();
                     self.set_notice(format!("agent: {argument}"));
                 }
             }
-            "/sessions" => self.open_session_picker(),
-            "/fork" => match self.engine.fork_session(&self.session.id, None) {
+            "/sessions" => self.open_session_picker().await,
+            "/fork" => match self.backend.fork(&self.session.id, None).await {
                 Ok(session) => {
                     self.session = session;
                     self.reload();
@@ -750,43 +855,37 @@ impl App {
                     .find(|message| message.info.role == Role::User)
                     .map(|message| message.info.id.clone());
                 match last_user {
-                    Some(message_id) => match self.engine.revert(&self.session.id, &message_id) {
-                        Ok(removed) => {
-                            let files = self
-                                .engine
-                                .restore_files(&self.session.id, Some(&message_id))
-                                .await;
-                            self.reload();
-                            match files {
-                                Ok(_) => self.set_notice(format!(
+                    Some(message_id) => {
+                        match self
+                            .backend
+                            .revert(&self.session.id, &message_id, true)
+                            .await
+                        {
+                            Ok(removed) => {
+                                self.reload();
+                                self.set_notice(format!(
                                     "undid {removed} message(s) and restored files"
-                                )),
-                                Err(error) => self.set_notice(format!(
-                                    "removed {removed} message(s); files not restored: {error}"
-                                )),
+                                ));
                             }
+                            Err(error) => self.set_notice(error),
                         }
-                        Err(error) => self.set_notice(error),
-                    },
+                    }
                     None => self.set_notice("nothing to undo"),
                 }
             }
             "/compact" => {
                 self.set_notice("compacting…");
-                match self.engine.compact(&self.session.id).await {
-                    Ok(Some(record)) => {
+                match self.backend.compact(&self.session.id).await {
+                    Ok(Some((before, after))) => {
                         self.reload();
-                        self.set_notice(format!(
-                            "compacted: {} → {} tokens",
-                            record.tokens_before, record.tokens_after
-                        ));
+                        self.set_notice(format!("compacted: {before} → {after} tokens"));
                     }
                     Ok(None) => self.set_notice("nothing to compact"),
                     Err(error) => self.set_notice(error),
                 }
             }
             "/abort" => {
-                if self.engine.abort(&self.session.id) {
+                if self.backend.abort(&self.session.id).await {
                     self.set_notice("aborting…");
                 }
             }
@@ -809,7 +908,7 @@ impl App {
     fn open_model_picker(&mut self) {
         let current = self.session.model.as_ref().map(|model| model.qualified());
         let mut items = Vec::new();
-        for provider in self.engine.config.providers() {
+        for provider in self.backend.providers() {
             for model in provider.models {
                 let value = format!("{}/{}", provider.id, model);
                 let marker = if current.as_deref() == Some(value.as_str()) {
@@ -846,9 +945,9 @@ impl App {
     fn open_agent_picker(&mut self) {
         let current = self.agent_label();
         self.picker = self
-            .engine
-            .agents
-            .list()
+            .backend
+            .agents()
+            .into_iter()
             .map(|agent| PickerItem {
                 label: format!(
                     "{} {:<10} {}",
@@ -856,7 +955,7 @@ impl App {
                     agent.id,
                     agent.description
                 ),
-                value: agent.id.clone(),
+                value: agent.id,
             })
             .collect();
         self.picker_index = self
@@ -869,8 +968,8 @@ impl App {
         self.overlay = Overlay::Agent;
     }
 
-    fn open_session_picker(&mut self) {
-        let sessions = match self.engine.sessions(true) {
+    async fn open_session_picker(&mut self) {
+        let sessions = match self.backend.sessions().await {
             Ok(sessions) => sessions,
             Err(error) => {
                 self.set_notice(error);
@@ -908,19 +1007,16 @@ impl App {
             return;
         };
         match self.overlay {
-            Overlay::Model => match self.engine.config.resolve_model(Some(&item.value)) {
-                Ok(model) => {
-                    if let Err(error) = self.engine.set_model(&self.session.id, model) {
-                        self.set_notice(error);
-                    } else {
-                        self.reload();
-                        self.set_notice(format!("model: {}", item.value));
-                    }
+            Overlay::Model => {
+                if let Err(error) = self.backend.set_model(&self.session.id, &item.value).await {
+                    self.set_notice(error);
+                } else {
+                    self.reload();
+                    self.set_notice(format!("model: {}", item.value));
                 }
-                Err(error) => self.set_notice(error),
-            },
+            }
             Overlay::Agent => {
-                if let Err(error) = self.engine.set_agent(&self.session.id, item.value.clone()) {
+                if let Err(error) = self.backend.set_agent(&self.session.id, &item.value).await {
                     self.set_notice(error);
                 } else {
                     self.reload();
@@ -929,13 +1025,17 @@ impl App {
             }
             Overlay::Sessions => {
                 let id = recode_schema::SessionId::from_existing(item.value.clone());
-                match self.engine.session(&id) {
-                    Ok(Some(session)) => {
+                match self.backend.open_session(&id).await {
+                    Ok(session) => {
                         self.session = session;
-                        self.messages = self.engine.messages(&id).unwrap_or_default();
+                        self.messages = self.backend.messages(&id).unwrap_or_default();
                         self.scroll_back = 0;
+                        self.status = if self.backend.is_busy(&id) {
+                            SessionStatus::Busy
+                        } else {
+                            SessionStatus::Idle
+                        };
                     }
-                    Ok(None) => self.set_notice("session not found"),
                     Err(error) => self.set_notice(error),
                 }
             }
@@ -985,56 +1085,6 @@ fn at_token(line: &str, cursor: usize) -> Option<(usize, String)> {
     Some((start, chars[start + 1..cursor].iter().collect()))
 }
 
-/// Append the contents of files referenced as `@relative/path`. Paths must
-/// resolve inside the project; unreadable, binary and oversized files are
-/// ignored. The total expansion is capped so one prompt cannot exhaust the
-/// context window.
-fn expand_file_references(root: &std::path::Path, text: String) -> String {
-    let mut seen = std::collections::HashSet::new();
-    let mut attachments = String::new();
-    let mut total = 0usize;
-    for token in text.split_whitespace() {
-        let Some(name) = token.strip_prefix('@') else {
-            continue;
-        };
-        let name = name.trim_end_matches(|character: char| ".,;)]".contains(character));
-        if name.is_empty() || !seen.insert(name.to_owned()) {
-            continue;
-        }
-        let Ok(path) = root.join(name).canonicalize() else {
-            continue;
-        };
-        if !recode_tool::is_within(
-            &recode_tool::canonicalish(&path),
-            &recode_tool::canonicalish(root),
-        ) {
-            continue;
-        }
-        let Ok(metadata) = std::fs::metadata(&path) else {
-            continue;
-        };
-        if !metadata.is_file() || metadata.len() > 256 * 1024 {
-            continue;
-        }
-        let Ok(content) = std::fs::read_to_string(&path) else {
-            continue;
-        };
-        if content.contains('\0') {
-            continue;
-        }
-        if total + content.len() > 512 * 1024 {
-            break;
-        }
-        total += content.len();
-        attachments.push_str(&format!("\n\n<file path=\"{name}\">\n{content}\n</file>"));
-    }
-    if attachments.is_empty() {
-        text
-    } else {
-        format!("{text}{attachments}")
-    }
-}
-
 fn format_time(timestamp: i64) -> String {
     use chrono::TimeZone;
     chrono::Local
@@ -1054,18 +1104,5 @@ mod tests {
         assert_eq!(at_token("mail@host", 9), None);
         assert_eq!(at_token("plain", 5), None);
         assert_eq!(at_token("@a", 0), None);
-    }
-
-    #[test]
-    fn expands_existing_file_references_only() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("a.txt"), "hello").unwrap();
-        let expanded = expand_file_references(dir.path(), "read @a.txt".into());
-        assert!(
-            expanded.contains("<file path=\"a.txt\">\nhello\n</file>"),
-            "expanded: {expanded:?}"
-        );
-        let unchanged = expand_file_references(dir.path(), "read @missing.txt".into());
-        assert_eq!(unchanged, "read @missing.txt");
     }
 }

@@ -1,21 +1,23 @@
 //! Re:Code terminal UI.
 //!
-//! The TUI is a client of the in-process engine. It owns no domain state of
-//! its own beyond presentation; transcripts are reloaded from the event store
-//! and live updates arrive on the engine bus.
+//! The TUI is a client of a session engine. It owns no domain state of its own
+//! beyond presentation: with a local engine transcripts come from the event
+//! store and deltas from the bus; with `--server` the same view is polled from
+//! the HTTP API.
 
 pub mod app;
+pub mod backend;
 pub mod input;
 pub mod ui;
 
 pub use app::{App, Overlay};
+pub use backend::{AgentView, Backend};
 
 use async_trait::async_trait;
 use crossterm::event::{
     DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture,
 };
 use crossterm::execute;
-use recode_core::engine::Engine;
 use recode_core::permission::PermissionResponder;
 use recode_schema::permission::{PermissionReply, PermissionRequest};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -75,15 +77,19 @@ impl PermissionResponder for TuiResponder {
 }
 
 pub async fn run(
-    engine: Arc<Engine>,
-    responder: Arc<TuiResponder>,
+    backend: Backend,
+    responder: Option<Arc<TuiResponder>>,
     session_id: recode_schema::SessionId,
 ) -> anyhow::Result<()> {
-    let mut app_events = responder
-        .take_receiver()
-        .ok_or_else(|| anyhow::anyhow!("TUI responder receiver already taken"))?;
-    let mut bus = engine.subscribe();
-    let mut app = App::new(engine.clone(), session_id).map_err(anyhow::Error::msg)?;
+    let (keep_tx, keep_rx) = mpsc::unbounded_channel();
+    let mut app_events = match responder.and_then(|responder| responder.take_receiver()) {
+        Some(receiver) => receiver,
+        None => keep_rx,
+    };
+    // `keep_tx` keeps the fallback channel open for the lifetime of the loop.
+    let _keep_tx = keep_tx;
+    let mut bus = backend.subscribe();
+    let mut app = App::new(backend, session_id).map_err(anyhow::Error::msg)?;
 
     let stop = Arc::new(AtomicBool::new(false));
     let (key_tx, mut key_rx) = mpsc::unbounded_channel();
@@ -130,15 +136,14 @@ pub async fn run(
                         Some(event) => app.on_app_event(event),
                         None => break,
                     }
-                }
-                event = bus.recv() => {
+                }                event = bus.recv() => {
                     match event {
                         Ok(event) => app.on_live(event),
                         Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => app.reload(),
                         Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
                     }
                 }
-                _ = tick.tick() => app.on_tick(),
+                _ = tick.tick() => app.on_tick().await,
             }
             if app.should_quit {
                 break;

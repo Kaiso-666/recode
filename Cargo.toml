@@ -6,6 +6,7 @@ members = [
   "crates/recode-provider",
   "crates/recode-tool",
   "crates/recode-core",
+  "crates/recode-client",
   "crates/recode-server",
   "crates/recode-tui",
   "crates/recode-cli",
@@ -26,6 +27,7 @@ recode-storage = { path = "crates/recode-storage" }
 recode-provider = { path = "crates/recode-provider" }
 recode-tool = { path = "crates/recode-tool" }
 recode-core = { path = "crates/recode-core" }
+recode-client = { path = "crates/recode-client" }
 recode-server = { path = "crates/recode-server" }
 recode-tui = { path = "crates/recode-tui" }
 

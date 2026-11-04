@@ -12,6 +12,7 @@ repository.workspace = true
 recode-schema = { workspace = true }
 recode-core = { workspace = true }
 recode-storage = { workspace = true }
+recode-tool = { workspace = true }
 anyhow = { workspace = true }
 axum = { workspace = true }
 futures-util = { workspace = true }

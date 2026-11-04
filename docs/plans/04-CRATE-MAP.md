@@ -54,18 +54,17 @@
 - `command.rs` — custom slash commands from config/markdown.
 
 ## recode-server
-- `app.rs` — router, middleware, auth.
-- `routes/*.rs` — sessions, messages, prompt, abort, config, models, files, events.
-- `sse.rs` — event feed.
-- `openapi.rs` — schema export.
+- `lib.rs` — axum router, bearer middleware, JSON handlers, SSE feeds, OpenAPI stub.
+
+## recode-client
+- `lib.rs` — typed HTTP client (`Client`): sessions, messages, prompt/abort, fork/revert,
+  compact, model/agent switches, permissions, questions, project files.
 
 ## recode-tui
-- `app.rs` — state machine, tabs, focus.
-- `ui/*.rs` — transcript, editor, status, dialogs, pickers.
-- `theme.rs` — tokens, truecolor/256 fallback.
-- `markdown.rs` — streaming-safe minimal renderer.
-- `input.rs` — keybinds, paste, history, completion.
-- `client.rs` — `EngineClient` trait: in-process or HTTP.
+- `app.rs` — state machine, commands, overlays, polling for attach mode.
+- `backend.rs` — `Backend` enum: in-process engine or cached HTTP client.
+- `ui.rs` — transcript, editor, status, dialogs, pickers, completion menu.
+- `input.rs` — keybinds, paste, history, cursor editing.
 
 ## recode-cli
 - `main.rs` — clap, telemetry init, dispatch.
