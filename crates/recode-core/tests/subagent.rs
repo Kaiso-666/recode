@@ -107,6 +107,7 @@ async fn task_tool_runs_a_child_session() {
         paths,
         directory: project,
         responder: Some(Arc::new(AutoApprove)),
+        question_responder: None,
     })
     .unwrap();
     let session = engine.create_session(None, None, None).unwrap();

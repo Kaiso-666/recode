@@ -18,8 +18,7 @@ Each milestone ends with a green `cargo test` and a usable binary. No milestone 
 
 ## M2 — Tools
 - [x] Registry with JSON Schema, permission action, timeout, truncation.
-- [x] `bash`, `read`, `write`, `edit`, `multi_edit`, `glob`, `grep`, `ls`, `webfetch`, `todowrite`, `task` (subagent).
-- [ ] `patch`, `question`.
+- [x] `bash`, `read`, `write`, `edit`, `multi_edit`, `patch`, `glob`, `grep`, `ls`, `webfetch`, `todowrite`, `task` (subagent), `question`.
 - [x] Permission engine (allow/ask/deny, wildcard patterns, per-project overrides).
 - [x] Sandbox path policy + bash env scrub + output caps.
 - **Exit:** agent can fix a seeded bug in a temp repo without human input (auto-approve). 🟡 (tool loop proven; seeded-bug fixture pending)

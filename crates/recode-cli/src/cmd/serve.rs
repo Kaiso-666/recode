@@ -8,10 +8,18 @@ pub async fn run(args: ServeArgs) -> anyhow::Result<()> {
         // Server clients approve through POST /api/permissions/{id}.
         None
     };
+    let question_responder: Option<std::sync::Arc<dyn recode_core::question::QuestionResponder>> =
+        if args.auto {
+            Some(std::sync::Arc::new(recode_core::question::AutoAnswerFirst))
+        } else {
+            // Server clients answer through POST /api/questions/{id}.
+            None
+        };
     let engine = recode_core::Engine::new(recode_core::EngineOptions {
         paths: crate::cmd::paths(),
         directory,
         responder,
+        question_responder,
     })
     .map_err(anyhow::Error::msg)?;
     let token = args

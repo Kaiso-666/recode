@@ -33,6 +33,7 @@ Status legend: `missing` · `partial` · `done` · `n/a` (explicit non-goal)
 | Session compaction | yes | done (manual + automatic) |
 | Subagents (`task`) | yes | done (depth-limited child sessions) |
 | Permissions (allow/ask/deny) | yes | done (in-process + HTTP broker) |
+| Model questions | yes | done (`question` tool: TUI modal, CLI prompt, HTTP broker) |
 | AGENTS.md instructions | yes | done |
 | Custom agents | yes | M3 |
 | Custom commands | yes | M3 |

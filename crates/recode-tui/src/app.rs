@@ -6,6 +6,7 @@ use recode_schema::event::{DeltaKind, Event, LiveEvent, SessionInfo, SessionStat
 use recode_schema::message::Message;
 use recode_schema::part::Part;
 use recode_schema::permission::{PermissionReply, PermissionRequest};
+use recode_schema::question::{QuestionReply, QuestionRequest};
 use std::sync::Arc;
 use tokio::sync::oneshot;
 
@@ -17,6 +18,7 @@ pub enum Overlay {
     Agent,
     Sessions,
     Permission,
+    Question,
 }
 
 #[derive(Clone, Debug)]
@@ -28,6 +30,16 @@ pub struct PickerItem {
 struct PendingPermission {
     request: PermissionRequest,
     reply: oneshot::Sender<PermissionReply>,
+}
+
+/// Progress through a multi-question request. The answers collected so far are
+/// only submitted when the last question is confirmed.
+#[derive(Clone, Debug)]
+pub struct QuestionProgress {
+    pub index: usize,
+    pub cursor: usize,
+    pub selected: Vec<usize>,
+    pub answers: Vec<Vec<String>>,
 }
 
 pub struct App {
@@ -47,6 +59,8 @@ pub struct App {
     history_pos: Option<usize>,
     pub show_reasoning: bool,
     pending: Vec<PendingPermission>,
+    pub pending_questions: Vec<QuestionRequest>,
+    pub question_state: Option<QuestionProgress>,
 }
 
 impl App {
@@ -72,6 +86,8 @@ impl App {
             history_pos: None,
             show_reasoning: true,
             pending: Vec::new(),
+            pending_questions: Vec::new(),
+            question_state: None,
         };
         if app.engine.is_busy(&app.session.id) {
             app.status = SessionStatus::Busy;
@@ -211,6 +227,19 @@ impl App {
                 }
             }
             LiveEvent::PermissionAsked(_) | LiveEvent::PermissionReplied { .. } => {}
+            LiveEvent::QuestionAsked(request) => {
+                if !self
+                    .pending_questions
+                    .iter()
+                    .any(|pending| pending.id == request.id)
+                {
+                    self.pending_questions.push(request);
+                }
+                if self.question_state.is_none() {
+                    self.activate_question();
+                }
+            }
+            LiveEvent::QuestionReplied { .. } => {}
             _ => {}
         }
     }
@@ -323,6 +352,7 @@ impl App {
                 KeyCode::Char('n') | KeyCode::Esc => self.reply_permission(PermissionReply::Reject),
                 _ => {}
             },
+            Overlay::Question => self.on_question_key(key),
             Overlay::None => {}
         }
     }
@@ -341,6 +371,124 @@ impl App {
 
     pub fn current_permission(&self) -> Option<&PermissionRequest> {
         self.pending.first().map(|pending| &pending.request)
+    }
+
+    pub fn current_question(&self) -> Option<(&QuestionRequest, &QuestionProgress)> {
+        let request = self.pending_questions.first()?;
+        let progress = self.question_state.as_ref()?;
+        Some((request, progress))
+    }
+
+    fn activate_question(&mut self) {
+        if self.pending_questions.is_empty() {
+            self.question_state = None;
+            if self.overlay == Overlay::Question {
+                self.overlay = Overlay::None;
+            }
+            return;
+        }
+        self.question_state = Some(QuestionProgress {
+            index: 0,
+            cursor: 0,
+            selected: Vec::new(),
+            answers: Vec::new(),
+        });
+        self.overlay = Overlay::Question;
+    }
+
+    fn on_question_key(&mut self, key: KeyEvent) {
+        let Some(request) = self.pending_questions.first().cloned() else {
+            self.activate_question();
+            return;
+        };
+        let Some(mut progress) = self.question_state.take() else {
+            self.activate_question();
+            return;
+        };
+        let Some(question) = request.questions.get(progress.index) else {
+            self.finish_question(&request, QuestionReply::Reject);
+            return;
+        };
+        let option_count = question.options.len();
+        match key.code {
+            KeyCode::Esc | KeyCode::Char('n') => {
+                self.finish_question(&request, QuestionReply::Reject);
+                return;
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                progress.cursor = progress.cursor.saturating_sub(1);
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                if option_count > 0 {
+                    progress.cursor = (progress.cursor + 1).min(option_count - 1);
+                }
+            }
+            KeyCode::Char(' ') => {
+                if question.multiple {
+                    if let Some(position) = progress
+                        .selected
+                        .iter()
+                        .position(|selected| *selected == progress.cursor)
+                    {
+                        progress.selected.remove(position);
+                    } else {
+                        progress.selected.push(progress.cursor);
+                        progress.selected.sort_unstable();
+                    }
+                } else {
+                    progress.selected = vec![progress.cursor];
+                }
+            }
+            KeyCode::Char(character) if character.is_ascii_digit() => {
+                let digit = character.to_digit(10).unwrap_or(1) as usize;
+                if digit >= 1 && digit <= option_count {
+                    progress.cursor = digit - 1;
+                }
+            }
+            KeyCode::Enter => {
+                let mut indices = if question.multiple && !progress.selected.is_empty() {
+                    progress.selected.clone()
+                } else {
+                    vec![progress.cursor]
+                };
+                indices.retain(|index| *index < option_count);
+                if indices.is_empty() {
+                    self.set_notice("no option available — press Esc to decline");
+                    self.question_state = Some(progress);
+                    return;
+                }
+                let labels = indices
+                    .into_iter()
+                    .filter_map(|index| question.options.get(index))
+                    .map(|option| option.label.clone())
+                    .collect::<Vec<_>>();
+                progress.answers.push(labels);
+                if progress.index + 1 < request.questions.len() {
+                    progress.index += 1;
+                    progress.cursor = 0;
+                    progress.selected.clear();
+                    self.question_state = Some(progress);
+                } else {
+                    let answers = progress.answers.clone();
+                    self.finish_question(&request, QuestionReply::Answer { answers });
+                }
+                return;
+            }
+            _ => {}
+        }
+        self.question_state = Some(progress);
+    }
+
+    fn finish_question(&mut self, request: &QuestionRequest, reply: QuestionReply) {
+        let _ = self.engine.questions.reply(&request.id, reply);
+        if let Some(position) = self
+            .pending_questions
+            .iter()
+            .position(|pending| pending.id == request.id)
+        {
+            self.pending_questions.remove(position);
+        }
+        self.activate_question();
     }
 
     async fn submit(&mut self) {

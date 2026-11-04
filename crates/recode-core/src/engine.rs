@@ -5,6 +5,7 @@ use crate::paths::RecodePaths;
 use crate::permission::PermissionResponder;
 use crate::project::Project;
 use crate::providers::Providers;
+use crate::question::QuestionResponder;
 use crate::runner;
 use recode_schema::event::{Event, LiveEvent, SessionInfo, SessionStatus};
 use recode_schema::id::SessionId;
@@ -24,6 +25,8 @@ pub struct EngineOptions {
     /// In-process approval bridge. `None` leaves approvals to the bus broker
     /// (server mode), where a client replies over HTTP.
     pub responder: Option<Arc<dyn PermissionResponder>>,
+    /// In-process question bridge. `None` leaves questions to the bus broker.
+    pub question_responder: Option<Arc<dyn QuestionResponder>>,
 }
 
 struct ActiveRun {
@@ -41,6 +44,7 @@ pub struct Engine {
     pub tools: Arc<recode_tool::ToolRegistry>,
     pub providers: Arc<Providers>,
     pub permissions: Arc<crate::permission::PermissionService>,
+    pub questions: Arc<crate::question::QuestionService>,
     pub bus: broadcast::Sender<LiveEvent>,
     runs: parking_lot::Mutex<HashMap<SessionId, ActiveRun>>,
 }
@@ -95,6 +99,11 @@ impl Engine {
             Some(bus.clone()),
             std::time::Duration::from_secs(300),
         ));
+        let questions = Arc::new(crate::question::QuestionService::new(
+            options.question_responder,
+            Some(bus.clone()),
+            std::time::Duration::from_secs(300),
+        ));
         Ok(Arc::new(Self {
             store,
             config,
@@ -103,6 +112,7 @@ impl Engine {
             tools,
             providers,
             permissions,
+            questions,
             bus,
             runs: parking_lot::Mutex::new(HashMap::new()),
         }))

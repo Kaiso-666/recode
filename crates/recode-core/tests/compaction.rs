@@ -124,6 +124,7 @@ async fn compaction_replaces_old_history_for_the_model() {
         paths,
         directory: project,
         responder: Some(Arc::new(AutoApprove)),
+        question_responder: None,
     })
     .unwrap();
     let session = engine.create_session(None, None, None).unwrap();

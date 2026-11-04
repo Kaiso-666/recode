@@ -12,6 +12,7 @@ pub mod model;
 pub mod part;
 pub mod permission;
 pub mod project;
+pub mod question;
 pub mod tool;
 
 pub use id::{EventId, MessageId, PartId, ProjectId, SessionId, ToolCallId};

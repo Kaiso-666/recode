@@ -374,6 +374,7 @@ fn draw_overlay(frame: &mut Frame, app: &App, area: Rect) {
                 Overlay::Agent => " agent ",
                 Overlay::Sessions => " sessions ",
                 Overlay::Permission => " permission ",
+                Overlay::Question => " question ",
                 Overlay::None => "",
             },
             Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
@@ -478,6 +479,81 @@ fn draw_overlay(frame: &mut Frame, app: &App, area: Rect) {
                     Span::styled(" reject", Style::default().fg(TEXT)),
                 ]));
                 frame.render_widget(Paragraph::new(lines), inner);
+            }
+        }
+        Overlay::Question => {
+            if let Some((request, progress)) = app.current_question() {
+                if let Some(question) = request.questions.get(progress.index) {
+                    let width = inner.width.saturating_sub(4) as usize;
+                    let mut lines = vec![
+                        Line::from(""),
+                        Line::from(Span::styled(
+                            format!(
+                                "question {} of {}",
+                                progress.index + 1,
+                                request.questions.len()
+                            ),
+                            Style::default().fg(DIM),
+                        )),
+                        Line::from(""),
+                    ];
+                    if !question.header.is_empty() {
+                        lines.push(Line::from(Span::styled(
+                            format!("  {}", question.header),
+                            Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+                        )));
+                    }
+                    for line in wrap_text(&question.question, width) {
+                        lines.push(Line::from(Span::styled(
+                            format!("  {line}"),
+                            Style::default().fg(TEXT),
+                        )));
+                    }
+                    lines.push(Line::from(""));
+                    for (index, option) in question.options.iter().enumerate() {
+                        let active = index == progress.cursor;
+                        let chosen =
+                            progress.selected.contains(&index) || (!question.multiple && active);
+                        let style = if active {
+                            Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)
+                        } else {
+                            Style::default().fg(TEXT)
+                        };
+                        lines.push(Line::from(vec![
+                            Span::raw(if active { "  › " } else { "    " }),
+                            Span::styled(
+                                if chosen { "[x] " } else { "[ ] " },
+                                Style::default().fg(if chosen { GREEN } else { DIM }),
+                            ),
+                            Span::styled(option.label.clone(), style),
+                        ]));
+                        if let Some(description) = &option.description {
+                            if !description.is_empty() {
+                                for line in wrap_text(description, width.saturating_sub(8))
+                                    .into_iter()
+                                    .take(3)
+                                {
+                                    lines.push(Line::from(Span::styled(
+                                        format!("        {line}"),
+                                        Style::default().fg(DIM),
+                                    )));
+                                }
+                            }
+                        }
+                    }
+                    lines.push(Line::from(""));
+                    lines.push(Line::from(vec![
+                        Span::styled("  ↑/↓", Style::default().fg(ACCENT)),
+                        Span::styled(" choose   ", Style::default().fg(DIM)),
+                        Span::styled("space", Style::default().fg(ACCENT)),
+                        Span::styled(" select   ", Style::default().fg(DIM)),
+                        Span::styled("enter", Style::default().fg(GREEN)),
+                        Span::styled(" confirm   ", Style::default().fg(DIM)),
+                        Span::styled("esc", Style::default().fg(ERROR)),
+                        Span::styled(" decline", Style::default().fg(DIM)),
+                    ]));
+                    frame.render_widget(Paragraph::new(lines), inner);
+                }
             }
         }
         Overlay::None => {}

@@ -10,6 +10,7 @@ use recode_schema::event::{Event, LiveEvent, SessionStatus};
 use recode_schema::llm::ContentBlock;
 use recode_schema::part::{Part, ToolStatus};
 use recode_schema::permission::{PermissionReply, PermissionRequest};
+use recode_schema::question::{Question, QuestionReply, QuestionRequest};
 use recode_schema::Role;
 use std::io::{IsTerminal, Write};
 use std::path::{Path, PathBuf};
@@ -25,10 +26,17 @@ pub async fn run(args: RunArgs) -> anyhow::Result<()> {
     } else {
         std::sync::Arc::new(InteractiveResponder)
     };
+    let question_responder: std::sync::Arc<dyn recode_core::question::QuestionResponder> =
+        if args.auto {
+            std::sync::Arc::new(recode_core::question::AutoAnswerFirst)
+        } else {
+            std::sync::Arc::new(InteractiveQuestionResponder)
+        };
     let engine = Engine::new(EngineOptions {
         paths,
         directory,
         responder: Some(responder),
+        question_responder: Some(question_responder),
     })
     .map_err(anyhow::Error::msg)?;
 
@@ -273,6 +281,85 @@ impl PermissionResponder for InteractiveResponder {
             _ => PermissionReply::Reject,
         }
     }
+}
+
+struct InteractiveQuestionResponder;
+
+#[async_trait]
+impl recode_core::question::QuestionResponder for InteractiveQuestionResponder {
+    async fn ask(&self, request: QuestionRequest) -> QuestionReply {
+        if !std::io::stdin().is_terminal() {
+            return QuestionReply::Reject;
+        }
+        let questions = request.questions;
+        match tokio::task::spawn_blocking(move || prompt_questions(&questions)).await {
+            Ok(Some(answers)) => QuestionReply::Answer { answers },
+            _ => QuestionReply::Reject,
+        }
+    }
+}
+
+fn prompt_questions(questions: &[Question]) -> Option<Vec<Vec<String>>> {
+    let mut answers = Vec::with_capacity(questions.len());
+    for question in questions {
+        if question.header.is_empty() {
+            eprintln!("\n{}", question.question.trim());
+        } else {
+            eprintln!("\n[{}] {}", question.header, question.question.trim());
+        }
+        for (index, option) in question.options.iter().enumerate() {
+            match &option.description {
+                Some(description) if !description.is_empty() => {
+                    eprintln!("  {}. {} — {description}", index + 1, option.label)
+                }
+                _ => eprintln!("  {}. {}", index + 1, option.label),
+            }
+        }
+        let hint = if question.multiple {
+            "numbers separated by commas"
+        } else {
+            "number"
+        };
+        eprint!("Answer ({hint}; blank = 1, q = decline): ");
+        let _ = std::io::stderr().flush();
+        let mut line = String::new();
+        if std::io::stdin().read_line(&mut line).ok()? == 0 {
+            return None;
+        }
+        let line = line.trim();
+        if line.eq_ignore_ascii_case("q") || line.eq_ignore_ascii_case("quit") {
+            return None;
+        }
+        if line.is_empty() {
+            answers.push(vec![question.options.first()?.label.clone()]);
+            continue;
+        }
+        if line.chars().all(|character| {
+            character.is_ascii_digit() || character == ',' || character.is_whitespace()
+        }) {
+            let mut selected = Vec::new();
+            for part in line.split(',') {
+                let Ok(index) = part.trim().parse::<usize>() else {
+                    continue;
+                };
+                if let Some(option) = question.options.get(index.saturating_sub(1)) {
+                    if !selected.contains(&option.label) {
+                        selected.push(option.label.clone());
+                    }
+                }
+            }
+            if selected.is_empty() {
+                return None;
+            }
+            if !question.multiple {
+                selected.truncate(1);
+            }
+            answers.push(selected);
+        } else {
+            answers.push(vec![line.to_owned()]);
+        }
+    }
+    Some(answers)
 }
 
 fn prepare_files(paths: &[PathBuf], prompt: &mut String) -> anyhow::Result<Vec<ContentBlock>> {

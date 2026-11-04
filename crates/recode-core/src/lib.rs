@@ -14,6 +14,7 @@ pub mod permission;
 pub mod project;
 pub mod prompt;
 pub mod providers;
+pub mod question;
 pub mod runner;
 pub mod subagent;
 

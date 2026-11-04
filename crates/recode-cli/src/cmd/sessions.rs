@@ -12,6 +12,7 @@ pub async fn run(args: SessionsArgs) -> anyhow::Result<()> {
         paths: crate::cmd::paths(),
         directory,
         responder: Some(Arc::new(AutoReject)),
+        question_responder: Some(Arc::new(recode_core::question::AutoRejectQuestions)),
     })
     .map_err(anyhow::Error::msg)?;
     match args.command {

@@ -16,6 +16,7 @@ use recode_core::engine::Engine;
 use recode_schema::event::LiveEvent;
 use recode_schema::llm::ContentBlock;
 use recode_schema::permission::PermissionReply;
+use recode_schema::question::QuestionReply;
 use recode_schema::SessionId;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -55,6 +56,8 @@ impl Server {
             .route("/api/events", get(events))
             .route("/api/permissions", get(list_permissions))
             .route("/api/permissions/{id}", post(reply_permission))
+            .route("/api/questions", get(list_questions))
+            .route("/api/questions/{id}", post(reply_question))
             .route("/api/openapi.json", get(openapi))
             .layer(middleware::from_fn_with_state(state.clone(), authorize))
             .layer(CorsLayer::permissive())
@@ -294,6 +297,36 @@ async fn reply_permission(
     Ok(Json(json!({"ok": true})))
 }
 
+async fn list_questions(
+    State(state): State<AppState>,
+    Query(query): Query<PermissionQuery>,
+) -> Json<Value> {
+    let session = query
+        .session
+        .as_deref()
+        .map(|id| SessionId::from_existing(id.to_owned()));
+    let pending = state.engine.questions.pending_requests(session.as_ref());
+    Json(json!({"questions": pending}))
+}
+
+#[derive(Deserialize)]
+struct QuestionReplyRequest {
+    reply: QuestionReply,
+}
+
+async fn reply_question(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(body): Json<QuestionReplyRequest>,
+) -> Result<Json<Value>, ApiError> {
+    if !state.engine.questions.reply(&id, body.reply) {
+        return Err(ApiError::not_found(format!(
+            "question request {id} is not pending"
+        )));
+    }
+    Ok(Json(json!({"ok": true})))
+}
+
 async fn session_events(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -351,8 +384,10 @@ fn belongs_to(event: &LiveEvent, session_id: &SessionId) -> bool {
         LiveEvent::Durable(envelope) => &envelope.session_id == session_id,
         LiveEvent::SessionStatus { session_id: id, .. }
         | LiveEvent::Delta { session_id: id, .. }
-        | LiveEvent::PermissionReplied { session_id: id, .. } => id == session_id,
+        | LiveEvent::PermissionReplied { session_id: id, .. }
+        | LiveEvent::QuestionReplied { session_id: id, .. } => id == session_id,
         LiveEvent::PermissionAsked(request) => &request.session_id == session_id,
+        LiveEvent::QuestionAsked(request) => &request.session_id == session_id,
     }
 }
 
@@ -370,7 +405,9 @@ async fn openapi() -> Json<Value> {
             "/api/sessions/{id}/events": {"get": {"operationId": "sessions.events"}},
             "/api/events": {"get": {"operationId": "events"}},
             "/api/permissions": {"get": {"operationId": "permissions.list"}},
-            "/api/permissions/{id}": {"post": {"operationId": "permissions.reply"}}
+            "/api/permissions/{id}": {"post": {"operationId": "permissions.reply"}},
+            "/api/questions": {"get": {"operationId": "questions.list"}},
+            "/api/questions/{id}": {"post": {"operationId": "questions.reply"}}
         }
     }))
 }

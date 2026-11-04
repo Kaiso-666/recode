@@ -795,6 +795,10 @@ async fn execute_call(
             cancel.clone(),
         )));
     }
+    context.question = Some(Arc::new(crate::question::EngineQuestions::new(
+        engine.clone(),
+        session_id.clone(),
+    )));
     let result = engine
         .tools
         .execute(&call.name, call.input.clone(), &context)

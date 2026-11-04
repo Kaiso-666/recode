@@ -4,10 +4,10 @@ Last updated: 2026-11-04 (verified build)
 
 ## Current state
 
-**Phase:** M3 complete, M4/M5 partial, all tests green.
+**Phase:** M2 complete, M3 complete, M4/M5 verified; M7 next.
 
 ```
-cargo test --workspace       67 passed, 0 failed
+cargo test --workspace       75 passed, 0 failed
 cargo clippy --workspace --all-targets -- -D warnings   clean
 cargo fmt --all --check       clean
 ```
@@ -18,7 +18,7 @@ cargo fmt --all --check       clean
 |---|---|---|
 | M0 foundation | ✅ done | 8 crates, CI, fmt/clippy, MIT attribution, `recode --version` |
 | M1 providers + loop | ✅ done | OpenAI + Anthropic SSE; 2 streaming integration tests; mock-provider E2E |
-| M2 tools | 🟡 12/13 | bash, read, write, edit, multi_edit, ls, glob, grep, webfetch, todowrite, task (subagent); patch/question missing |
+| M2 tools | ✅ done | bash, read, write, edit, multi_edit, patch, ls, glob, grep, webfetch, todowrite, task (subagent), question (TUI modal + HTTP broker) |
 | M3 config/agents | ✅ done | JSONC (+BOM), JSONC merge, 4 built-in agents, AGENTS.md/CLAUDE.md, auth store |
 | M4 TUI | ✅ verified | transcript, streaming markdown-lite, editor, pickers, permission modal, todo strip — driven in a real ConPTY (`script/tui_smoke.py`), including the approval modal |
 | M5 server | ✅ core | axum API + SSE verified with curl; bearer auth; permission broker (`GET /api/permissions`, `POST /api/permissions/{id}`) verified end to end |
@@ -42,16 +42,21 @@ cargo fmt --all --check       clean
   request contains the summary instead of the original tool transcript (integration test).
 - Subagents: a `task` tool call creates a child session, runs it to idle, and returns its
   final answer to the parent (integration test).
+- Patch: unified diffs with multi-file hunks, CRLF preservation, and all-or-nothing
+  validation; `patch` is registered as an edit-class tool (unit tests).
+- Questions: a `question` tool call surfaces a modal in the TUI (verified through
+  `script/tui_smoke.py --question`) and a pending request in `GET /api/questions` that
+  `POST /api/questions/{id}` resolves; the tool returns the selected labels to the model
+  (integration test plus curl E2E).
 - `config show` redacts credentials; `config rebuild` replays the event log.
 
 ## Next actions (in order)
 
-1. `patch` tool (unified diffs) and a `question` tool for interactive clarification.
-2. Fork/revert and file snapshots (M7); then markdown share/export.
-3. LSP diagnostics manager (M6) then MCP client.
-4. TUI polish: `@file` completion, session search, scrollback paging.
-5. Add `recode run --format json` event streaming (currently final transcript only).
-6. Release plumbing: installer, shell completions, benchmarks.
+1. Fork/revert sessions and markdown export; then file snapshots for pre-edit revert.
+2. LSP diagnostics manager (M6) then MCP client.
+3. TUI polish: `@file` completion, session search, scrollback paging.
+4. Add `recode run --format json` streaming (currently final transcript only).
+5. Release plumbing: installer, shell completions, benchmarks.
 
 ## Known issues / gotchas
 
@@ -78,6 +83,9 @@ cargo fmt --all --check       clean
   running mock provider; it asserts on ANSI-stripped ConPTY output.
 - **Subagents:** depth is carried in session metadata (`subagentDepth`), capped at 2; the
   `task` tool is permission-checked like any other tool.
+- **Questions:** `QuestionService` uses an in-process responder when present, otherwise the
+  bus broker; TUI answers call `Engine::questions.reply` directly from the modal. `--auto`
+  selects the first option for each question; headless `sessions` commands reject.
 
 ## Architecture notes
 

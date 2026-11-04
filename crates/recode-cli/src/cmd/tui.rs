@@ -14,6 +14,7 @@ pub async fn run(args: TuiArgs) -> anyhow::Result<()> {
         paths,
         directory,
         responder: Some(responder.clone()),
+        question_responder: None,
     })
     .map_err(anyhow::Error::msg)?;
     let session = match &args.session {

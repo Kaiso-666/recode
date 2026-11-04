@@ -71,6 +71,7 @@ def main():
     parser.add_argument("--data", required=True)
     parser.add_argument("--binary", default=r"C:\Users\meow\projects\recode\target\debug\recode.exe")
     parser.add_argument("--permission", action="store_true")
+    parser.add_argument("--question", action="store_true")
     args = parser.parse_args()
 
     env = os.environ.copy()
@@ -83,12 +84,21 @@ def main():
     try:
         if not session.wait_for("Welcome to Re:Code"):
             failures.append("welcome screen did not render")
-        session.send("read a.txt\r")
+        session.send("read a.txt\r" if not args.question else "ask me something\r")
         if args.permission:
             if not session.wait_for("permission", timeout=15):
                 failures.append("permission modal did not appear")
             session.send("y")
-        if not session.wait_for("Done. I read the file.", timeout=20):
+        if args.question:
+            if not session.wait_for("Which database should the project use?", timeout=15):
+                failures.append("question modal did not appear")
+            session.send("\r")
+        expected = (
+            "Done. I asked the question."
+            if args.question
+            else "Done. I read the file."
+        )
+        if not session.wait_for(expected, timeout=20):
             failures.append("assistant reply did not render")
         # Help overlay.
         session.send("\x1bOP")  # F1

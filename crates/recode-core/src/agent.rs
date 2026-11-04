@@ -58,6 +58,7 @@ impl AgentRegistry {
                 ("glob".into(), true),
                 ("grep".into(), true),
                 ("webfetch".into(), true),
+                ("question".into(), true),
             ]),
             temperature: None,
             permission: Ruleset::default(),

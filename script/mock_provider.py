@@ -21,6 +21,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 COUNTER = {"n": 0}
 LOCK = threading.Lock()
 LOG_PATH = None
+SCENARIO = "read"
 
 
 def sse(payload):
@@ -88,6 +89,56 @@ class Handler(BaseHTTPRequestHandler):
             COUNTER["n"] += 1
 
         if turn == 0:
+            if SCENARIO == "question":
+                arguments = {
+                    "questions": [
+                        {
+                            "question": "Which database should the project use?",
+                            "header": "Database",
+                            "options": [
+                                {"label": "SQLite", "description": "Embedded, zero setup."},
+                                {"label": "Postgres", "description": "Server, needs a service."},
+                            ],
+                        }
+                    ]
+                }
+                self.wfile.write(
+                    sse(
+                        {
+                            "choices": [
+                                {
+                                    "delta": {
+                                        "tool_calls": [
+                                            {
+                                                "index": 0,
+                                                "id": "call_1",
+                                                "function": {
+                                                    "name": "question",
+                                                    "arguments": json.dumps(arguments),
+                                                },
+                                            }
+                                        ]
+                                    }
+                                }
+                            ]
+                        }
+                    )
+                )
+                self.wfile.write(
+                    sse(
+                        {
+                            "choices": [{"delta": {}, "finish_reason": "tool_calls"}],
+                            "usage": {
+                                "prompt_tokens": 50,
+                                "completion_tokens": 10,
+                                "total_tokens": 60,
+                            },
+                        }
+                    )
+                )
+                self.wfile.write(b"data: [DONE]\n\n")
+                self.wfile.flush()
+                return
             self.wfile.write(
                 sse(
                     {
@@ -119,7 +170,11 @@ class Handler(BaseHTTPRequestHandler):
                 )
             )
         else:
-            text = "Done. I read the file."
+            text = (
+                "Done. I asked the question."
+                if SCENARIO == "question"
+                else "Done. I read the file."
+            )
             self.wfile.write(
                 sse({"choices": [{"delta": {"content": text}, "finish_reason": "stop"}]})
             )
@@ -136,15 +191,20 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
-    global LOG_PATH
+    global LOG_PATH, SCENARIO
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=18888)
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--log")
+    parser.add_argument("--scenario", choices=["read", "question"], default="read")
     args = parser.parse_args()
     LOG_PATH = args.log
+    SCENARIO = args.scenario
     server = ThreadingHTTPServer((args.host, args.port), Handler)
-    print(f"mock provider on http://{args.host}:{args.port}/v1", flush=True)
+    print(
+        f"mock provider on http://{args.host}:{args.port}/v1 ({args.scenario})",
+        flush=True,
+    )
     server.serve_forever()
 
 

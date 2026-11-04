@@ -2,6 +2,7 @@ use crate::id::{MessageId, PartId, ProjectId, SessionId};
 use crate::message::{MessageError, MessageInfo};
 use crate::part::Part;
 use crate::permission::{PermissionReply, PermissionRequest};
+use crate::question::{QuestionReply, QuestionRequest};
 use crate::Timestamp;
 use serde::{Deserialize, Serialize};
 
@@ -192,6 +193,13 @@ pub enum LiveEvent {
         session_id: SessionId,
         request_id: String,
         reply: PermissionReply,
+    },
+    /// The model asked the user a question and is waiting for an answer.
+    QuestionAsked(QuestionRequest),
+    QuestionReplied {
+        session_id: SessionId,
+        request_id: String,
+        reply: QuestionReply,
     },
 }
 

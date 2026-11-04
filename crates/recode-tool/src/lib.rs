@@ -8,6 +8,8 @@ mod bash;
 mod fs;
 mod glob;
 mod grep;
+mod patch;
+mod question;
 mod read;
 mod task;
 pub mod todo;
@@ -41,6 +43,16 @@ pub trait SubagentRunner: Send + Sync {
     ) -> Result<String, ToolFailure>;
 }
 
+/// Lets the `question` tool reach the active interactive surface without the
+/// tool crate depending on the engine or the UI.
+#[async_trait]
+pub trait QuestionAsker: Send + Sync {
+    async fn ask(
+        &self,
+        questions: Vec<recode_schema::question::Question>,
+    ) -> Result<Vec<Vec<String>>, ToolFailure>;
+}
+
 #[derive(Clone)]
 pub struct ToolContext {
     pub session_id: SessionId,
@@ -55,6 +67,8 @@ pub struct ToolContext {
     pub progress: Option<ProgressFn>,
     /// Set for agents that are allowed to delegate to a child session.
     pub subagent: Option<Arc<dyn SubagentRunner>>,
+    /// Set when the user can be asked questions.
+    pub question: Option<Arc<dyn QuestionAsker>>,
 }
 
 impl ToolContext {
@@ -73,7 +87,13 @@ impl ToolContext {
             abort: CancellationToken::new(),
             progress: None,
             subagent: None,
+            question: None,
         }
+    }
+
+    pub fn with_question(mut self, asker: Arc<dyn QuestionAsker>) -> Self {
+        self.question = Some(asker);
+        self
     }
 
     pub fn progress(&self, message: impl Into<String>) {
@@ -164,6 +184,8 @@ impl ToolRegistry {
         registry.register(Arc::new(fs::LsTool));
         registry.register(Arc::new(glob::GlobTool));
         registry.register(Arc::new(grep::GrepTool));
+        registry.register(Arc::new(patch::PatchTool));
+        registry.register(Arc::new(question::QuestionTool));
         registry.register(Arc::new(task::TaskTool));
         registry.register(Arc::new(todo::TodoTool));
         registry.register(Arc::new(webfetch::WebFetchTool));
