@@ -141,70 +141,90 @@ pub async fn run(args: RunArgs) -> anyhow::Result<()> {
                 session_id,
                 ..
             } if session_id == session.id => {
-                if !json && kind == recode_schema::event::DeltaKind::Text {
+                if json {
+                    emit_json(&serde_json::json!({
+                        "type": "delta",
+                        "sessionId": session_id,
+                        "kind": kind,
+                        "delta": delta,
+                    }));
+                } else if kind == recode_schema::event::DeltaKind::Text {
                     print!("{delta}");
                     let _ = std::io::stdout().flush();
                 }
             }
-            LiveEvent::Durable(envelope) => match &envelope.event {
-                Event::PartAdded {
-                    session_id,
-                    part: Part::Tool(tool),
-                    ..
-                } if *session_id == session.id => {
-                    if !json {
-                        eprintln!(
-                            "\n[tool] {}",
-                            tool.state
-                                .title
-                                .clone()
-                                .unwrap_or_else(|| tool.tool.clone())
-                        );
-                    }
+            LiveEvent::Durable(envelope) => {
+                if json {
+                    emit_json(&serde_json::json!({
+                        "type": "event",
+                        "envelope": envelope,
+                    }));
                 }
-                Event::PartUpdated {
-                    session_id,
-                    part: Part::Tool(tool),
-                    ..
-                } if *session_id == session.id => {
-                    if !json {
-                        match tool.state.status {
-                            ToolStatus::Completed => {
-                                eprintln!(
-                                    "[tool] {} ✓",
-                                    tool.state
-                                        .title
-                                        .clone()
-                                        .unwrap_or_else(|| tool.tool.clone())
-                                );
-                            }
-                            ToolStatus::Error => {
-                                eprintln!(
-                                    "[tool] {} failed: {}",
-                                    tool.state
-                                        .title
-                                        .clone()
-                                        .unwrap_or_else(|| tool.tool.clone()),
-                                    tool.state.error.clone().unwrap_or_default()
-                                );
-                            }
-                            _ => {}
+                match &envelope.event {
+                    Event::PartAdded {
+                        session_id,
+                        part: Part::Tool(tool),
+                        ..
+                    } if *session_id == session.id => {
+                        if !json {
+                            eprintln!(
+                                "\n[tool] {}",
+                                tool.state
+                                    .title
+                                    .clone()
+                                    .unwrap_or_else(|| tool.tool.clone())
+                            );
                         }
                     }
-                }
-                Event::SessionError { session_id, error } if *session_id == session.id => {
-                    saw_error = true;
-                    if !json {
-                        eprintln!("\n[error] {}", error.message);
+                    Event::PartUpdated {
+                        session_id,
+                        part: Part::Tool(tool),
+                        ..
+                    } if *session_id == session.id => {
+                        if !json {
+                            match tool.state.status {
+                                ToolStatus::Completed => {
+                                    eprintln!(
+                                        "[tool] {} ✓",
+                                        tool.state
+                                            .title
+                                            .clone()
+                                            .unwrap_or_else(|| tool.tool.clone())
+                                    );
+                                }
+                                ToolStatus::Error => {
+                                    eprintln!(
+                                        "[tool] {} failed: {}",
+                                        tool.state
+                                            .title
+                                            .clone()
+                                            .unwrap_or_else(|| tool.tool.clone()),
+                                        tool.state.error.clone().unwrap_or_default()
+                                    );
+                                }
+                                _ => {}
+                            }
+                        }
                     }
+                    Event::SessionError { session_id, error } if *session_id == session.id => {
+                        saw_error = true;
+                        if !json {
+                            eprintln!("\n[error] {}", error.message);
+                        }
+                    }
+                    _ => {}
                 }
-                _ => {}
-            },
+            }
             LiveEvent::SessionStatus {
                 session_id,
                 status: SessionStatus::Idle,
             } if session_id == session.id => {
-                if !json {
+                if json {
+                    emit_json(&serde_json::json!({
+                        "type": "idle",
+                        "sessionId": session_id,
+                    }));
+                } else {
                     println!();
                 }
                 break;
@@ -218,13 +238,12 @@ pub async fn run(args: RunArgs) -> anyhow::Result<()> {
         let messages = engine.messages(&session.id).map_err(anyhow::Error::msg)?;
         let usage = total_usage(&messages);
         let text = final_text(&messages);
-        let output = serde_json::json!({
+        emit_json(&serde_json::json!({
+            "type": "result",
             "sessionId": session.id,
-            "messages": messages,
             "text": text,
             "usage": usage,
-        });
-        println!("{}", serde_json::to_string_pretty(&output)?);
+        }));
     } else if let Some(usage) = summary_usage(&engine, &session.id) {
         eprintln!(
             "— tokens: {} in / {} out · ${:.4}",
@@ -360,6 +379,11 @@ fn prompt_questions(questions: &[Question]) -> Option<Vec<Vec<String>>> {
         }
     }
     Some(answers)
+}
+
+fn emit_json(value: &serde_json::Value) {
+    println!("{value}");
+    let _ = std::io::stdout().flush();
 }
 
 fn prepare_files(paths: &[PathBuf], prompt: &mut String) -> anyhow::Result<Vec<ContentBlock>> {

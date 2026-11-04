@@ -67,14 +67,16 @@ cargo fmt --all --check       clean
   persisted in the tool part (`tests/mcp.rs`).
 - Formatters: an opt-in formatter command runs after a successful edit and rewrites the
   file (unit test with a Python one-liner); built-ins stay disabled until enabled.
+- JSON output: `recode run --format json` streams one object per line (`delta`, `event`,
+  `idle`) and ends with a `result` carrying the final text and usage; stdout stays pure
+  JSONL while prompts/logs go to stderr (verified against `script/mock_provider.py`).
 - `config show` redacts credentials; `config rebuild` replays the event log.
 
 ## Next actions (in order)
 
 1. TUI polish: `@file` completion, session search, scrollback paging.
-2. Add `recode run --format json` streaming (currently final transcript only).
-3. M5 remainder: TUI/CLI `--server` attach mode.
-4. Release plumbing: installer, shell completions, benchmarks.
+2. M5 remainder: TUI/CLI `--server` attach mode.
+3. Release plumbing: installer, shell completions, benchmarks.
 
 ## Known issues / gotchas
 
@@ -104,6 +106,9 @@ cargo fmt --all --check       clean
 - **Questions:** `QuestionService` uses an in-process responder when present, otherwise the
   bus broker; TUI answers call `Engine::questions.reply` directly from the modal. `--auto`
   selects the first option for each question; headless `sessions` commands reject.
+- **JSON output:** `--format json` is line-delimited: `delta`, `event`, `idle`, then one
+  `result`. The final result intentionally omits the full transcript (use `sessions show`
+  or the unchanged text mode for that).
 - **File snapshots:** require `git` on `PATH` (missing git degrades to a warning, the run
   continues); disable with `"snapshot": false` in config. The shadow repo lives under
   `<data>/snapshots/<project-id>` with `GIT_DIR`/`GIT_WORK_TREE` env vars, so the user's

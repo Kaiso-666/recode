@@ -78,8 +78,8 @@ pub struct RunArgs {
     /// Attach a file (repeatable). Images are sent as attachments; text files are inlined.
     #[arg(long, value_name = "FILE")]
     pub file: Vec<PathBuf>,
-    /// Output format: text or json.
-    #[arg(long, default_value = "text")]
+    /// Output format: text (human) or json (one JSON object per line, then a result).
+    #[arg(long, default_value = "text", value_parser = ["text", "json"])]
     pub format: String,
     /// Title for a newly created session.
     #[arg(long)]
