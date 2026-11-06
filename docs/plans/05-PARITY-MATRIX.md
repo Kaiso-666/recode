@@ -8,7 +8,7 @@ Status legend: `missing` · `partial` · `done` · `n/a` (explicit non-goal)
 |---|---|---|---|
 | `schema` | `recode-schema` | done | Core message/part/tool/llm/config types; v1/compat schemas intentionally skipped |
 | `core` | `recode-core` + `recode-tool` + `recode-storage` | partial | Runner, config, agents, permissions, compaction, subagents, snapshots, LSP, MCP, opt-in formatters |
-| `ai` | `recode-provider` | partial | Canonical LLM events; anthropic/openai-compatible (Gemini via OpenAI endpoint); OpenCode Zen free tier |
+| `ai` | `recode-provider` | partial | Canonical LLM events; anthropic/openai-compatible (Gemini via OpenAI endpoint); OpenCode Zen free tier; models.dev snapshot/routing |
 | `server` | `recode-server` | done | axum + SSE, permission/question brokers, file + model/agent + compact routes |
 | `cli` | `recode-cli` | done | run/tui/serve/auth/models/sessions/config; `--server` attach |
 | `tui` | `recode-tui` | done | local + attach modes, `@file`, session search, modals |
@@ -25,6 +25,9 @@ Status legend: `missing` · `partial` · `done` · `n/a` (explicit non-goal)
 | Capability | opencode | Re:Code |
 |---|---|---|
 | Streaming text/reasoning | yes | done |
+| models.dev provider/model catalog | yes | done (chat-completions/messages routes; `recode models --refresh`) |
+| OpenCode Zen free tier | yes | done (no account; paid models hidden until a key exists) |
+| Console device OAuth | yes | missing (API keys work; device flow next) |
 | Parallel tool calls | yes | done |
 | Provider retry/failover | yes | done (retry; no cross-provider failover yet) |
 | Session persistence | SQLite | SQLite event store (done) |

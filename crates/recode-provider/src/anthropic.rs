@@ -52,6 +52,8 @@ impl AnthropicProvider {
     fn url(&self) -> String {
         if self.base_url.ends_with("/messages") {
             self.base_url.clone()
+        } else if self.base_url.ends_with("/v1") {
+            format!("{}/messages", self.base_url)
         } else {
             format!("{}/v1/messages", self.base_url)
         }

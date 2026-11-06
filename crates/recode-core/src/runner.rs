@@ -135,7 +135,7 @@ async fn run_inner(
     );
     let provider = engine
         .providers
-        .get(&model.provider_id)
+        .get_for(model)
         .map_err(|error| error.to_string())?;
     let model_config = engine.config.model_config(model);
     let allow_outside =

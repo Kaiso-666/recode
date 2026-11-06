@@ -24,8 +24,8 @@ pub enum Command {
     Serve(ServeArgs),
     /// Manage provider credentials.
     Auth(AuthArgs),
-    /// List providers and models.
-    Models,
+    /// List providers and models from the built-in registry and models.dev.
+    Models(ModelsArgs),
     /// Inspect and manage sessions.
     Sessions(SessionsArgs),
     /// Inspect configuration.
@@ -126,6 +126,19 @@ pub struct ServeArgs {
     /// Approve all permission requests.
     #[arg(long)]
     pub auto: bool,
+}
+
+#[derive(Args, Default)]
+pub struct ModelsArgs {
+    /// Only show one provider.
+    #[arg(value_name = "PROVIDER")]
+    pub provider: Option<String>,
+    /// Show providers that have no credential too.
+    #[arg(long)]
+    pub all: bool,
+    /// Refresh the models.dev catalog before listing.
+    #[arg(long)]
+    pub refresh: bool,
 }
 
 #[derive(Args)]

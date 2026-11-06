@@ -4,6 +4,7 @@
 //! adapter owns request/response translation for one wire protocol.
 
 pub mod anthropic;
+pub mod catalog;
 pub mod error;
 pub mod openai;
 pub mod registry;

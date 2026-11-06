@@ -907,8 +907,15 @@ impl App {
 
     fn open_model_picker(&mut self) {
         let current = self.session.model.as_ref().map(|model| model.qualified());
+        let providers = self.backend.providers();
         let mut items = Vec::new();
-        for provider in self.backend.providers() {
+        for provider in providers {
+            let current_provider = current
+                .as_deref()
+                .is_some_and(|value| value.starts_with(&format!("{}/", provider.id)));
+            if !provider.configured && !current_provider {
+                continue;
+            }
             for model in provider.models {
                 let value = format!("{}/{}", provider.id, model);
                 let marker = if current.as_deref() == Some(value.as_str()) {

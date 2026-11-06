@@ -46,6 +46,8 @@ recode completions bash   # also: zsh, fish, powershell, elvish
 - **Provider neutral.** Anthropic, OpenAI-compatible endpoints, Gemini — same loop.
 - **Free models out of the box.** OpenCode Zen's free tier needs no account:
   `recode run --model opencode/big-pickle "…"`.
+- **models.dev native.** `recode models --refresh` imports the same provider and
+  model catalog opencode uses, including context limits and prices.
 - **Safe tools.** Typed capabilities with allow/ask/deny rules and path sandboxing.
 
 ## Workspace

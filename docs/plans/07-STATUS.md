@@ -8,7 +8,7 @@ Last updated: 2026-11-04 (verified build)
 with the OpenCode Zen free tier.
 
 ```
-cargo test --workspace       94 passed, 0 failed
+cargo test --workspace       100 passed, 0 failed
 cargo clippy --workspace --all-targets -- -D warnings   clean
 cargo fmt --all --check       clean
 cargo build --release --locked --bin recode             verified (16m51s)
@@ -27,7 +27,7 @@ cargo build --release --locked --bin recode             verified (16m51s)
 | M6 LSP/MCP | ✅ done | on-demand LSP diagnostics in tool results; MCP stdio + streamable HTTP tools (`mcp__*`); opt-in formatter hooks |
 | M7 sessions at scale | ✅ done | compaction; fork/revert; shadow-git snapshots + file restore; patch tracking; JSON/Markdown export |
 | M8 polish | 🟡 release plumbing | installers, completions, checksum-verified upgrade, release workflow, docs; release profile builds; signing/benchmarks pending |
-| M9 parity | 🟡 started | OpenCode Zen provider with free models (`opencode/big-pickle` and the current free set) works without an account; models.dev catalog and device OAuth next |
+| M9 parity | 🟡 started | OpenCode Zen free models work without an account; models.dev catalog refresh, provider/model routing and metadata are wired; Console device OAuth next |
 
 ### Verified end-to-end
 
@@ -94,6 +94,13 @@ cargo build --release --locked --bin recode             verified (16m51s)
   profile (`--release --locked --bin recode`, thin LTO) built and the binary ran
   (`recode 0.1.0`) after `CARGO_BUILD_JOBS=1`; the earlier `lib.exe 0xc0000142` failure was
   concurrency-related and did not recur.
+- models.dev catalog: `recode models --refresh` downloads the live catalog (228
+  providers / 7,231 supported chat models at the last run), keeps a compact 2.4 MB snapshot at
+  `<data>/models.json`, and reloads it. Provider lists, bare model ids, context limits, costs
+  and per-model protocol/base-URL routing now come from it. The TUI picker shows configured
+  providers only; `recode models --all` shows the full catalog. An E2E run used a synthetic
+  catalog provider pointed at `script/mock_provider.py`: the `read` tool ran and the cost was
+  zero, proving catalog route selection and `Providers::get_for` work end to end.
 - OpenCode Zen free tier: the built-in `opencode` provider targets
   `https://opencode.ai/inference/openai/v1`, lists the current free model set, and falls
   back to the literal free key `public` when no credential exists. `recode models` shows
@@ -104,8 +111,8 @@ cargo build --release --locked --bin recode             verified (16m51s)
 
 ## Next actions (in order)
 
-1. M9 parity: models.dev catalog (all providers/models, cached snapshot), then OpenCode
-   Console device OAuth for paid Zen models and `recode auth login opencode`.
+1. M9 parity: OpenCode Console device OAuth + refresh for paid Zen models, then diff the
+   CLI/config/TUI surface against the upstream fork.
 2. Benchmark numbers (`script/bench.ps1`) on the release binary; wire benchmarks into CI.
 3. TUI attach over SSE (replace 4–20 Hz polling) and `sessions --server`.
 4. Signed release binaries and parser fuzz tests.
@@ -133,6 +140,10 @@ cargo build --release --locked --bin recode             verified (16m51s)
   `PartDelta`; clients reload from the event log on durable events and on idle.
 - **Casing:** event JSON currently mixes camelCase (inner structs) with snake_case (variant
   fields). Harmless internally; normalize before publishing a wire protocol.
+- **models.dev cache:** `<data>/models.json` is Re:Code's compact format, not the upstream
+  document; delete it to fall back to built-ins. It tolerates a UTF-8 BOM. Only models whose
+  catalog entry offers `chat-completions` or `messages` are imported, and deprecated entries
+  are skipped. `recode models --refresh` is a manual network call; startup never fetches.
 - **DB is pre-1.0:** schema changes may require deleting `<data>/recode.db`. `config rebuild`
   reconstructs projections but not the event log itself.
 - **TUI testing:** `script/tui_smoke.py` needs `pywinpty` (installed for CPython 3.15) and a

@@ -36,7 +36,7 @@ fn main() -> anyhow::Result<()> {
             Command::Tui(args) => cmd::tui::run(args).await,
             Command::Serve(args) => cmd::serve::run(args).await,
             Command::Auth(args) => cmd::auth::run(args).await,
-            Command::Models => cmd::models::run().await,
+            Command::Models(args) => cmd::models::run(args).await,
             Command::Sessions(args) => cmd::sessions::run(args).await,
             Command::Config(args) => cmd::config::run(args).await,
             Command::Completions { shell } => {

@@ -3,11 +3,14 @@ use crate::{
     openai::OpenAiProvider, Provider,
 };
 use recode_schema::config::ProviderConfig;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Api {
+    #[serde(rename = "openai")]
     OpenAi,
+    #[serde(rename = "anthropic")]
     Anthropic,
 }
 

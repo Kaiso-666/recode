@@ -68,6 +68,23 @@ listed; adding an entry can override their endpoint or models.
 `api` selects the wire protocol: `openai` or `anthropic`. Gemini is reached
 through its OpenAI-compatible endpoint.
 
+### models.dev catalog
+
+`recode models --refresh` downloads the models.dev snapshot
+(`https://models.opencode.ai/experimental/v2.0/api.json`) and writes a compact
+copy to `<data>/models.json`. The provider list, model picker, bare model ids,
+context limits and costs all come from that snapshot; the built-in list remains
+as a fallback when no snapshot exists. Only models that advertise the
+`chat-completions` or `messages` protocol are executable. `recode models` lists
+providers with a credential (including the free OpenCode tier); add `--all` to
+see every provider, or pass a provider id to filter.
+
+```sh
+recode models --refresh
+recode models
+recode models --all openrouter
+```
+
 ### OpenCode Zen and free models
 
 The built-in `opencode` provider points at
@@ -80,10 +97,10 @@ recode run --model opencode/big-pickle "hello"
 ```
 
 No `auth login` is required; when no `OPENCODE_API_KEY` or stored credential is
-present, requests use the literal free-tier key `public`. The enabled models are
-the current free set (`big-pickle`, `deepseek-v4.1-flash-free`,
-`glm-5.3-flash-free`, `mimo-v2.6-flash-free`, the Nemotron free models, and the
-newest alpha free models). Paid Zen models need a key from
+present, requests use the literal free-tier key `public`. Without a catalog
+snapshot the built-in fallback lists `big-pickle` and the current free models;
+after `recode models --refresh` the full free set is read from models.dev, and
+paid models stay hidden until a key is supplied. Paid Zen models need a key from
 `recode auth login opencode` or `OPENCODE_API_KEY`. Set
 `OPENCODE_DISABLE_FREE_MODELS=1` to hide the free tier and require a key, the
 same switch opencode uses. Free-tier requests are rate-limited by the service;

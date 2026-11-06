@@ -84,7 +84,7 @@ pub async fn compact_session(
     let context_limit = engine.config.model_config(model).limit.context.max(8_000);
     let budget_chars = (context_limit as usize).saturating_mul(4 * 60 / 100);
     let history = trim_history(history, budget_chars);
-    let provider = engine.providers.get(&model.provider_id)?;
+    let provider = engine.providers.get_for(model)?;
     let request = LlmRequest {
         model: model.clone(),
         system: SUMMARY_SYSTEM_PROMPT.to_owned(),
