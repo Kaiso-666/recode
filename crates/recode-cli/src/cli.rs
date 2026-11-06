@@ -149,11 +149,15 @@ pub struct AuthArgs {
 
 #[derive(Subcommand)]
 pub enum AuthCommand {
-    /// Store an API key for a provider.
+    /// Store a credential for a provider. `opencode` uses the Console device
+    /// flow unless --key is supplied.
     Login {
         provider: String,
         #[arg(long)]
         key: Option<String>,
+        /// OpenCode Console base URL for the device flow.
+        #[arg(long)]
+        server: Option<String>,
     },
     /// Remove a stored credential.
     Logout { provider: String },

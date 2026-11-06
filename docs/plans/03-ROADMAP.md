@@ -70,6 +70,6 @@ Each milestone ends with a green `cargo test` and a usable binary. No milestone 
   `OPENCODE_DISABLE_FREE_MODELS` switch, picker + bare model ids.
 - [x] models.dev catalog: `recode models --refresh`, compact cache, provider/model routing,
   context limits and costs. Only the OpenAI-compatible and Anthropic protocols are imported.
-- [ ] OpenCode Console device OAuth for paid Zen models, with token refresh.
+- [x] OpenCode Console device OAuth for paid Zen models, with token refresh.
 - [ ] Diff the CLI/config/TUI surface against the upstream fork and close gaps.
 - **Exit:** an opencode user can move their config and habits over without surprises.

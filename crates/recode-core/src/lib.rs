@@ -12,6 +12,7 @@ pub mod instructions;
 pub mod jsonc;
 pub mod lsp;
 pub mod mcp;
+pub mod oauth;
 pub mod paths;
 pub mod permission;
 pub mod project;

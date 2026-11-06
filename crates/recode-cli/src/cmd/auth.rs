@@ -1,12 +1,41 @@
 use crate::cli::{AuthArgs, AuthCommand};
 use recode_core::auth::AuthStore;
+use recode_core::oauth;
 
 pub async fn run(args: AuthArgs) -> anyhow::Result<()> {
     let paths = crate::cmd::paths();
     paths.ensure()?;
     let mut store = AuthStore::load(&paths.auth_path);
     match args.command {
-        AuthCommand::Login { provider, key } => {
+        AuthCommand::Login {
+            provider,
+            key,
+            server,
+        } => {
+            if provider == "opencode" && key.is_none() {
+                let server = server
+                    .or_else(|| std::env::var("OPENCODE_CONSOLE_URL").ok())
+                    .unwrap_or_else(|| oauth::DEFAULT_SERVER.to_owned());
+                let device = oauth::device_code(&server)
+                    .await
+                    .map_err(anyhow::Error::msg)?;
+                eprintln!(
+                    "Open {} and enter code {}",
+                    device.verification_uri_complete, device.user_code
+                );
+                eprintln!("Waiting for approval…");
+                let credential = oauth::poll_token(&server, &device)
+                    .await
+                    .map_err(anyhow::Error::msg)?;
+                store
+                    .set_oauth(&provider, credential)
+                    .map_err(anyhow::Error::msg)?;
+                println!(
+                    "Signed in to OpenCode Console for {provider} ({})",
+                    store.path().display()
+                );
+                return Ok(());
+            }
             let key = match key {
                 Some(key) => key,
                 None => {

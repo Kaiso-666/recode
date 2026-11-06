@@ -171,8 +171,9 @@ impl ConfigManager {
         unique
     }
 
-    /// A credential the user supplied, without the free-tier fallback.
-    pub fn explicit_key(&self, provider: &str) -> Option<String> {
+    /// A credential from config or the environment, without the auth store or
+    /// the free-tier fallback.
+    pub fn configured_key(&self, provider: &str) -> Option<String> {
         if let Some(key) = self
             .merged
             .provider
@@ -182,9 +183,6 @@ impl ConfigManager {
         {
             return Some(key);
         }
-        if let Some(key) = self.auth.get(provider).filter(|key| !key.is_empty()) {
-            return Some(key.to_owned());
-        }
         for name in self.provider_env(provider) {
             if let Ok(value) = std::env::var(&name) {
                 if !value.is_empty() {
@@ -193,6 +191,12 @@ impl ConfigManager {
             }
         }
         None
+    }
+
+    /// A credential the user supplied, without the free-tier fallback.
+    pub fn explicit_key(&self, provider: &str) -> Option<String> {
+        self.configured_key(provider)
+            .or_else(|| self.auth.get(provider).map(str::to_owned))
     }
 
     /// The credential used for a provider: explicit config, the auth store,

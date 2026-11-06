@@ -48,6 +48,8 @@ recode completions bash   # also: zsh, fish, powershell, elvish
   `recode run --model opencode/big-pickle "…"`.
 - **models.dev native.** `recode models --refresh` imports the same provider and
   model catalog opencode uses, including context limits and prices.
+- **opencode accounts.** `recode auth login opencode` runs the Console device flow and
+  refreshes OAuth tokens automatically; paid Zen models use the same credential.
 - **Safe tools.** Typed capabilities with allow/ask/deny rules and path sandboxing.
 
 ## Workspace

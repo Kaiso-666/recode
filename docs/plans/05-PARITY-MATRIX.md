@@ -27,7 +27,7 @@ Status legend: `missing` · `partial` · `done` · `n/a` (explicit non-goal)
 | Streaming text/reasoning | yes | done |
 | models.dev provider/model catalog | yes | done (chat-completions/messages routes; `recode models --refresh`) |
 | OpenCode Zen free tier | yes | done (no account; paid models hidden until a key exists) |
-| Console device OAuth | yes | missing (API keys work; device flow next) |
+| Console device OAuth | yes | done (device flow, auth.json-compatible storage, automatic refresh) |
 | Parallel tool calls | yes | done |
 | Provider retry/failover | yes | done (retry; no cross-provider failover yet) |
 | Session persistence | SQLite | SQLite event store (done) |

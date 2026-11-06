@@ -15,6 +15,22 @@ directories. Credentials live in `<config>/recode/auth.json`; prefer
 `recode config show` prints the merged result with secrets redacted, and
 `recode config path` prints the active locations.
 
+## Credentials
+
+```sh
+recode auth login anthropic          # prompts for an API key
+recode auth login opencode           # OpenCode Console device flow
+recode auth login opencode --key …   # API key instead of OAuth
+recode auth login opencode --server https://opencode.ai/console
+recode auth list
+recode auth logout opencode
+```
+
+The OpenCode device flow prints a URL and a one-time code, waits for approval,
+and stores the OAuth token in `auth.json` in opencode's shape. Access tokens are
+refreshed automatically shortly before they expire and the rotated refresh token
+is saved. The Console URL can also be set with `OPENCODE_CONSOLE_URL`.
+
 ## Minimal example
 
 ```jsonc

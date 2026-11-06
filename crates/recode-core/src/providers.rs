@@ -1,4 +1,6 @@
+use crate::auth::{AuthStore, OAuthCredential};
 use crate::config::ConfigManager;
+use crate::oauth;
 use parking_lot::Mutex;
 use recode_provider::registry::{self, Api, BuildOptions};
 use recode_provider::Provider;
@@ -15,42 +17,56 @@ type CacheKey = (String, String);
 pub struct Providers {
     config: Arc<ConfigManager>,
     cache: Mutex<HashMap<CacheKey, Arc<dyn Provider>>>,
+    auth: Mutex<AuthStore>,
+    refresh: tokio::sync::Mutex<()>,
 }
 
 impl Providers {
     pub fn new(config: Arc<ConfigManager>) -> Self {
+        let auth = AuthStore::load(&config.paths.auth_path);
         Self {
             config,
             cache: Mutex::new(HashMap::new()),
+            auth: Mutex::new(auth),
+            refresh: tokio::sync::Mutex::new(()),
         }
     }
 
     /// Build using the provider's default route; callers that know the model
     /// should prefer [`Providers::get_for`].
-    pub fn get(&self, provider_id: &str) -> Result<Arc<dyn Provider>, String> {
-        self.build(provider_id, "")
+    pub async fn get(&self, provider_id: &str) -> Result<Arc<dyn Provider>, String> {
+        self.build(provider_id, "").await
     }
 
-    pub fn get_for(&self, model: &ModelRef) -> Result<Arc<dyn Provider>, String> {
-        self.build(&model.provider_id, &model.model_id)
+    pub async fn get_for(&self, model: &ModelRef) -> Result<Arc<dyn Provider>, String> {
+        self.build(&model.provider_id, &model.model_id).await
     }
 
-    fn build(&self, provider_id: &str, model_id: &str) -> Result<Arc<dyn Provider>, String> {
+    async fn build(&self, provider_id: &str, model_id: &str) -> Result<Arc<dyn Provider>, String> {
         let key = (provider_id.to_owned(), model_id.to_owned());
         if let Some(provider) = self.cache.lock().get(&key) {
             return Ok(provider.clone());
         }
         let provider_config = self.config.provider(provider_id);
-        let (api, base_url) = self
-            .config
-            .route(provider_id, model_id)
-            .ok_or_else(|| {
-                format!(
-                    "unknown provider {provider_id:?}. Add it under \"provider\" in recode.json, \
-                     refresh the catalog with `recode models --refresh`, or use a built-in provider."
-                )
-            })?;
-        let api_key = self.config.provider_key(provider_id);
+        let (api, base_url) = self.config.route(provider_id, model_id).ok_or_else(|| {
+            format!(
+                "unknown provider {provider_id:?}. Add it under \"provider\" in recode.json, \
+                 refresh the catalog with `recode models --refresh`, or use a built-in provider."
+            )
+        })?;
+        let mut api_key = self.config.configured_key(provider_id);
+        if api_key.is_none() {
+            let oauth = self.auth.lock().oauth(provider_id).cloned();
+            api_key = match oauth {
+                Some(oauth) => Some(self.token(provider_id, oauth).await?),
+                None => self.auth.lock().get(provider_id).map(str::to_owned),
+            };
+        }
+        if api_key.is_none() {
+            api_key = registry::spec(provider_id)
+                .and_then(registry::free_key)
+                .map(str::to_owned);
+        }
         let keyless = registry::spec(provider_id).is_some_and(|spec| spec.keyless);
         if api == Api::Anthropic && api_key.as_deref().unwrap_or("").is_empty() {
             return Err(format!(
@@ -106,5 +122,29 @@ impl Providers {
         .ok_or_else(|| format!("provider {provider_id:?} is misconfigured"))?;
         self.cache.lock().insert(key, provider.clone());
         Ok(provider)
+    }
+
+    async fn token(&self, provider: &str, oauth: OAuthCredential) -> Result<String, String> {
+        if !oauth.expired() {
+            return Ok(oauth.access);
+        }
+        if oauth.refresh.is_empty() {
+            return Err(format!(
+                "the {provider:?} session expired. Run `recode auth login {provider}` again."
+            ));
+        }
+        // Serialize refreshes so two concurrent steps cannot rotate the same
+        // refresh token twice.
+        let _refresh = self.refresh.lock().await;
+        let current = self.auth.lock().oauth(provider).cloned().unwrap_or(oauth);
+        if !current.expired() {
+            return Ok(current.access);
+        }
+        let updated = oauth::refresh(current.server(), &current.refresh).await?;
+        self.auth
+            .lock()
+            .set_oauth(provider, updated.clone())
+            .map_err(|error| format!("cannot store refreshed credential: {error}"))?;
+        Ok(updated.access)
     }
 }
