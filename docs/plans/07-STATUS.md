@@ -91,7 +91,8 @@ binary                       18.0 MiB
   `general`/`explore` pair (unit tests).
 - Release benchmark: `script/bench.ps1 -Runs 20` on the release binary measured startup at
   mean 39.1 ms / p50 38.6 ms / p95 46.7 ms and an 18.0 MiB executable; the release build
-  took 20m07s with `CARGO_BUILD_JOBS=1`.
+  took 20m07s with `CARGO_BUILD_JOBS=1`. The release binary also passed the markdown
+  agent/command mock-provider run and the ConPTY TUI smoke (`--slash`).
 - Formatters: an opt-in formatter command runs after a successful edit and rewrites the
   file (unit test with a Python one-liner); built-ins stay disabled until enabled.
 - JSON output: `recode run --format json` streams one object per line (`delta`, `event`,
