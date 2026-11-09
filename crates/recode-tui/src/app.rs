@@ -901,7 +901,67 @@ impl App {
                 self.input.clear();
                 self.set_notice("input cleared");
             }
-            other => self.set_notice(format!("unknown command {other}; press F1 for help")),
+            other => {
+                let name = other.trim_start_matches('/');
+                let expansion = self
+                    .backend
+                    .expand_command(name, argument, &self.session.directory)
+                    .await;
+                let expansion = match expansion {
+                    Ok(Some(expansion)) => expansion,
+                    Ok(None) => {
+                        self.set_notice(format!("unknown command {other}; press F1 for help"));
+                        return;
+                    }
+                    Err(error) => {
+                        self.set_notice(error);
+                        return;
+                    }
+                };
+                if expansion.subagent {
+                    self.set_notice("subagent slash commands are not supported yet");
+                    return;
+                }
+                let original = if argument.is_empty() {
+                    format!("/{name}")
+                } else {
+                    format!("/{name} {argument}")
+                };
+                if self.status == SessionStatus::Busy || self.backend.is_busy(&self.session.id) {
+                    self.set_notice("session is busy — press Esc to abort");
+                    self.input.set_text(&original);
+                    return;
+                }
+                if let Some(agent) = &expansion.agent {
+                    if !self.backend.has_agent(agent) {
+                        self.set_notice(format!("unknown agent {agent:?}"));
+                        return;
+                    }
+                    if let Err(error) = self.backend.set_agent(&self.session.id, agent).await {
+                        self.set_notice(error);
+                        return;
+                    }
+                }
+                if let Some(model) = &expansion.model {
+                    if let Err(error) = self.backend.set_model(&self.session.id, model).await {
+                        self.set_notice(error);
+                        return;
+                    }
+                }
+                self.history.push(original);
+                self.history_pos = None;
+                self.file_cache.clear();
+                let text = self.backend.expand_file_references(expansion.text).await;
+                self.status = SessionStatus::Busy;
+                if let Err(error) = self.backend.prompt(&self.session.id, text.clone()).await {
+                    self.set_notice(error);
+                    self.input.set_text(&text);
+                    self.status = SessionStatus::Idle;
+                    return;
+                }
+                self.scroll_back = 0;
+                self.reload();
+            }
         }
     }
 

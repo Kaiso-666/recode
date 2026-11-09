@@ -28,6 +28,8 @@ Each milestone ends with a green `cargo test` and a usable binary. No milestone 
 - [x] Agent definitions (build/plan/general/explore), per-agent prompts/tools/permissions.
 - [x] opencode-style markdown agents: `agent(s)/**/*.md`, `mode(s)/*.md`, frontmatter
   fields, global/`.opencode`/`.recode` precedence, project overrides global.
+- [x] custom markdown commands: `command(s)/**/*.md`, `$ARGUMENTS`/`$1..$N`, inline
+  shell interpolation, agent/model selection, TUI and CLI expansion.
 - [x] `AGENTS.md` / `CLAUDE.md` discovery + instructions injection.
 - [x] `recode auth login|logout|list`, key storage.
 - **Exit:** `recode run --agent plan` restricts writes; project instructions respected. ✅

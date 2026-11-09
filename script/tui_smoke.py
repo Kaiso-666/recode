@@ -79,6 +79,16 @@ def main():
     parser.add_argument("--complete", action="store_true")
     parser.add_argument("--search", action="store_true")
     parser.add_argument(
+        "--prompt",
+        default="",
+        help="Prompt to type instead of the scenario default (for slash-command tests).",
+    )
+    parser.add_argument(
+        "--expect",
+        default="",
+        help="Assistant reply to wait for instead of the scenario default.",
+    )
+    parser.add_argument(
         "--extra",
         default="",
         help="Extra CLI arguments appended to the binary, e.g. --server URL --token T.",
@@ -106,6 +116,8 @@ def main():
         prompt = "ask me something" if args.question else "read a.txt"
         if args.write:
             prompt = "write a.txt"
+        if args.prompt:
+            prompt = args.prompt
         if args.complete:
             session.send("read @a")
             if not session.wait_for("a.txt", timeout=10):
@@ -130,6 +142,8 @@ def main():
             if args.write
             else "Done. I read the file."
         )
+        if args.expect:
+            expected = args.expect
         if not session.wait_for(expected, timeout=20):
             failures.append("assistant reply did not render")
         if args.search:

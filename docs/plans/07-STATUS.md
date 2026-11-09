@@ -8,7 +8,7 @@ Last updated: 2026-11-04 (verified build)
 with the OpenCode Zen free tier.
 
 ```
-cargo test --workspace       107 passed, 0 failed
+cargo test --workspace       112 passed, 0 failed
 cargo clippy --workspace --all-targets -- -D warnings   clean
 cargo fmt --all --check       clean
 cargo build --release --locked --bin recode             verified (16m51s)
@@ -21,7 +21,7 @@ cargo build --release --locked --bin recode             verified (16m51s)
 | M0 foundation | ✅ done | 8 crates, CI, fmt/clippy, MIT attribution, `recode --version` |
 | M1 providers + loop | ✅ done | OpenAI + Anthropic SSE; 2 streaming integration tests; mock-provider E2E |
 | M2 tools | ✅ done | bash, read, write, edit, multi_edit, patch, ls, glob, grep, webfetch, todowrite, task (subagent), question (TUI modal + HTTP broker) |
-| M3 config/agents | ✅ done | JSONC (+BOM), JSONC merge, 4 built-in agents, opencode-style markdown agents (`.opencode`/`.recode`/global), AGENTS.md/CLAUDE.md, auth store |
+| M3 config/agents | ✅ done | JSONC (+BOM), JSONC merge, 4 built-in agents, opencode-style markdown agents and slash commands (`.opencode`/`.recode`/global), AGENTS.md/CLAUDE.md, auth store |
 | M4 TUI | ✅ verified | transcript, streaming markdown-lite, editor, pickers, permission modal, todo strip — driven in a real ConPTY (`script/tui_smoke.py`), including the approval modal |
 | M5 server | ✅ done | axum API + SSE verified with curl; bearer auth; permission and question brokers; `recode-client`; TUI/CLI attach (`--server`) verified in ConPTY |
 | M6 LSP/MCP | ✅ done | on-demand LSP diagnostics in tool results; MCP stdio + streamable HTTP tools (`mcp__*`); opt-in formatter hooks |
@@ -73,6 +73,12 @@ cargo build --release --locked --bin recode             verified (16m51s)
   body as the system prompt, proving discovery, frontmatter parsing and precedence.
   Unit tests cover global `.opencode`/`.recode` precedence, `mode(s)` primary agents,
   nested ids, tool/permission maps, and JSON config winning over markdown.
+- Custom commands: `.recode/command/review.md` with `agent: reviewer`, `$1`/`$ARGUMENTS`
+  and ``!`echo shell-win` `` was run as `recode run "/review a.txt second"`; the model
+  request carried the Reviewer system prompt and the expanded prompt with shell output.
+  The same command was typed in the TUI and passed `script/tui_smoke.py` (prompt flag).
+  Unit tests cover precedence, quoted arguments, positional/named substitution,
+  append-without-placeholders, shell interpolation, and agent/model selection.
 - Formatters: an opt-in formatter command runs after a successful edit and rewrites the
   file (unit test with a Python one-liner); built-ins stay disabled until enabled.
 - JSON output: `recode run --format json` streams one object per line (`delta`, `event`,
@@ -123,7 +129,7 @@ cargo build --release --locked --bin recode             verified (16m51s)
 ## Next actions (in order)
 
 1. M9 parity: diff the CLI/config/TUI surface against the upstream fork and close gaps
-   (custom commands, themes/keybinds, share).
+   (themes/keybinds, share, server-side command execution, subagent commands).
 2. Benchmark numbers (`script/bench.ps1`) on the release binary; wire benchmarks into CI.
 3. TUI attach over SSE (replace 4–20 Hz polling) and `sessions --server`.
 4. Signed release binaries and parser fuzz tests.

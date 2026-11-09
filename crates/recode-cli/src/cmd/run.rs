@@ -102,6 +102,44 @@ pub async fn run(args: RunArgs) -> anyhow::Result<()> {
     if prompt.trim().is_empty() {
         prompt = cmd::read_stdin_if_piped().unwrap_or_default();
     }
+    if let Some(rest) = prompt.trim().strip_prefix('/') {
+        let (name, arguments) = match rest.split_once(char::is_whitespace) {
+            Some((name, arguments)) => (name, arguments.trim()),
+            None => (rest, ""),
+        };
+        if let Some(command) = engine.commands.get(name) {
+            if command.subagent {
+                anyhow::bail!("subagent slash commands are not supported yet");
+            }
+            let expansion = command
+                .expand(arguments, &session.directory)
+                .await
+                .map_err(anyhow::Error::msg)?;
+            if args.agent.is_none() {
+                if let Some(agent) = &expansion.agent {
+                    engine
+                        .set_agent(&session.id, agent.clone())
+                        .map_err(anyhow::Error::msg)?;
+                }
+            }
+            if args.model.is_none() {
+                if let Some(model) = &expansion.model {
+                    let model = engine
+                        .config
+                        .resolve_model(Some(model))
+                        .map_err(anyhow::Error::msg)?;
+                    engine
+                        .set_model(&session.id, model)
+                        .map_err(anyhow::Error::msg)?;
+                }
+            }
+            session = engine
+                .session(&session.id)
+                .map_err(anyhow::Error::msg)?
+                .context("session disappeared")?;
+            prompt = expansion.text;
+        }
+    }
     let files = prepare_files(&args.file, &mut prompt)?;
     if prompt.trim().is_empty() && files.is_empty() {
         anyhow::bail!("you must provide a message");

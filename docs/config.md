@@ -155,6 +155,36 @@ configuration always wins.
 Project instructions are loaded from `AGENTS.md` and `CLAUDE.md` (plus
 `instructions` globs) and prepended to the system prompt.
 
+## Commands
+
+Markdown files under `command(s)/**/*.md` (global config directory, `.opencode`,
+or `.recode`) become slash commands. The relative path is the name, the body is
+the prompt template, and frontmatter can set `description`, `agent`, `model`,
+and `subagent` (the last one is parsed but not executed yet). Project files
+override global files with the same name.
+
+```markdown
+---
+description: Review a change
+agent: plan
+---
+Review `$1` for correctness and edge cases.
+
+Extra context from the caller: $ARGUMENTS
+```
+
+Templates support `$ARGUMENTS`, positional `$1`…`$N` (the highest placeholder
+consumes the remaining arguments), and inline shell interpolation with
+``!`command` ``. With no placeholders the typed arguments are appended to the
+template. Run a command from the TUI (`/review src/main.rs`) or the CLI:
+
+```sh
+recode run "/review src/main.rs"
+```
+
+Custom commands are expanded locally; attaching to a server keeps the raw text
+until the server command endpoint lands.
+
 ## Permissions
 
 Keys are permission names (`read`, `edit`, `bash`, `webfetch`, `task`,

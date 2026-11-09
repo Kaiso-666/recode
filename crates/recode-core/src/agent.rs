@@ -1,10 +1,9 @@
 use crate::config::ConfigManager;
-use crate::frontmatter::Frontmatter;
+use crate::frontmatter::{discover, markdown_name, Frontmatter};
 use indexmap::IndexMap;
 use recode_schema::config::{AgentConfig, PermissionConfig, PermissionValue};
 use recode_schema::permission::{Decision, Ruleset};
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AgentMode {
@@ -117,11 +116,11 @@ impl AgentRegistry {
             config.project_root.join(".recode"),
         ];
         for root in roots {
-            for file in discover_markdown(&root) {
+            for file in discover(&root, AGENT_SOURCES) {
                 let Ok(content) = std::fs::read_to_string(&file.path) else {
                     continue;
                 };
-                let Some(id) = agent_id(&root, &file.path) else {
+                let Some(id) = markdown_name(&root, &file.path) else {
                     continue;
                 };
                 let frontmatter = Frontmatter::parse(&content);
@@ -198,63 +197,13 @@ impl AgentRegistry {
     }
 }
 
-/// One discovered markdown agent. `primary` is set for the legacy `mode(s)`
-/// directories, whose files always become primary agents.
-struct MarkdownAgent {
-    path: PathBuf,
-    primary: bool,
-}
-
-/// `agent(s)/**/*.md` and `mode(s)/*.md`, sorted by path for determinism.
-fn discover_markdown(root: &Path) -> Vec<MarkdownAgent> {
-    let mut files = Vec::new();
-    for (name, recursive, primary) in [
-        ("agent", true, false),
-        ("agents", true, false),
-        ("mode", false, true),
-        ("modes", false, true),
-    ] {
-        collect_markdown(&root.join(name), recursive, primary, &mut files);
-    }
-    files.sort_by(|left, right| left.path.cmp(&right.path));
-    files.dedup_by(|left, right| left.path == right.path);
-    files
-}
-
-fn collect_markdown(
-    directory: &Path,
-    recursive: bool,
-    primary: bool,
-    files: &mut Vec<MarkdownAgent>,
-) {
-    let Ok(entries) = std::fs::read_dir(directory) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let Ok(kind) = entry.file_type() else {
-            continue;
-        };
-        let path = entry.path();
-        if kind.is_dir() {
-            if recursive {
-                collect_markdown(&path, true, primary, files);
-            }
-            continue;
-        }
-        if kind.is_file() && path.extension().is_some_and(|extension| extension == "md") {
-            files.push(MarkdownAgent { path, primary });
-        }
-    }
-}
-
-/// `agent/review/security.md` under `root` becomes `review/security`.
-fn agent_id(root: &Path, path: &Path) -> Option<String> {
-    let relative = path.strip_prefix(root).ok()?.to_string_lossy();
-    let relative = relative.replace('\\', "/");
-    let (_, name) = relative.split_once('/')?;
-    let name = name.strip_suffix(".md")?;
-    (!name.is_empty()).then(|| name.to_owned())
-}
+/// `agent(s)/**/*.md` and `mode(s)/*.md`; `mode(s)` files are always primary.
+const AGENT_SOURCES: &[(&str, bool, bool)] = &[
+    ("agent", true, false),
+    ("agents", true, false),
+    ("mode", false, true),
+    ("modes", false, true),
+];
 
 fn markdown_config(frontmatter: &Frontmatter, primary: bool) -> AgentConfig {
     let mode = if primary {

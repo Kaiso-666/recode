@@ -8,6 +8,7 @@
 //! second UI.
 
 use recode_client::Client;
+use recode_core::command::Expansion;
 use recode_core::config::ProviderSummary;
 use recode_core::engine::Engine;
 use recode_schema::event::SessionInfo;
@@ -199,6 +200,23 @@ impl Backend {
 
     pub fn has_agent(&self, id: &str) -> bool {
         self.agents().iter().any(|agent| agent.id == id)
+    }
+
+    /// Expand a markdown slash command. Remote attach has no command endpoint
+    /// yet, so custom commands are local-only.
+    pub async fn expand_command(
+        &self,
+        name: &str,
+        arguments: &str,
+        directory: &Path,
+    ) -> Result<Option<Expansion>, String> {
+        let Some(engine) = &self.local else {
+            return Ok(None);
+        };
+        let Some(command) = engine.commands.get(name) else {
+            return Ok(None);
+        };
+        command.expand(arguments, directory).await.map(Some)
     }
 
     pub fn files(&self) -> Vec<String> {

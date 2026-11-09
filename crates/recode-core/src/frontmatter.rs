@@ -1,10 +1,11 @@
-//! Minimal YAML frontmatter for markdown agents and commands.
+//! Minimal YAML frontmatter plus discovery for markdown agents and commands.
 //!
 //! opencode files start with `---`, a flat YAML mapping, then `---`. We keep
 //! only the subset those files use: scalar fields and one level of nested
 //! `key: value` maps (for example `tools:`).
 
 use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
 
 #[derive(Clone, Debug, Default)]
 pub struct Frontmatter {
@@ -97,6 +98,56 @@ impl Frontmatter {
             })
             .collect()
     }
+}
+
+/// One markdown file found under a configuration directory. `primary` is set
+/// for the legacy `mode(s)` directories, whose files always become primary.
+pub struct MarkdownFile {
+    pub path: PathBuf,
+    pub primary: bool,
+}
+
+/// Scan `(subdirectory, recursive, primary)` sources under `root` for `.md`
+/// files, sorted by path for deterministic precedence.
+pub fn discover(root: &Path, sources: &[(&str, bool, bool)]) -> Vec<MarkdownFile> {
+    let mut files = Vec::new();
+    for (name, recursive, primary) in sources {
+        collect(&root.join(name), *recursive, *primary, &mut files);
+    }
+    files.sort_by(|left, right| left.path.cmp(&right.path));
+    files.dedup_by(|left, right| left.path == right.path);
+    files
+}
+
+fn collect(directory: &Path, recursive: bool, primary: bool, files: &mut Vec<MarkdownFile>) {
+    let Ok(entries) = std::fs::read_dir(directory) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let Ok(kind) = entry.file_type() else {
+            continue;
+        };
+        let path = entry.path();
+        if kind.is_dir() {
+            if recursive {
+                collect(&path, true, primary, files);
+            }
+            continue;
+        }
+        if kind.is_file() && path.extension().is_some_and(|extension| extension == "md") {
+            files.push(MarkdownFile { path, primary });
+        }
+    }
+}
+
+/// The file's path under `root` minus its first component and `.md`:
+/// `agent/review/security.md` becomes `review/security`.
+pub fn markdown_name(root: &Path, path: &Path) -> Option<String> {
+    let relative = path.strip_prefix(root).ok()?.to_string_lossy();
+    let relative = relative.replace('\\', "/");
+    let (_, name) = relative.split_once('/')?;
+    let name = name.strip_suffix(".md")?;
+    (!name.is_empty()).then(|| name.to_owned())
 }
 
 fn unquote(value: &str) -> String {

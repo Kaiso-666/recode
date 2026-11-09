@@ -1,4 +1,5 @@
 use crate::agent::{Agent, AgentRegistry};
+use crate::command::CommandRegistry;
 use crate::config::ConfigManager;
 use crate::instructions::Instructions;
 use crate::paths::RecodePaths;
@@ -41,6 +42,7 @@ pub struct Engine {
     pub config: Arc<ConfigManager>,
     pub project: Arc<Project>,
     pub agents: Arc<AgentRegistry>,
+    pub commands: Arc<CommandRegistry>,
     pub tools: Arc<recode_tool::ToolRegistry>,
     pub providers: Arc<Providers>,
     pub permissions: Arc<crate::permission::PermissionService>,
@@ -90,6 +92,7 @@ impl Engine {
         let mut project = project;
         project.info = project_info;
         let agents = Arc::new(AgentRegistry::from_config(&config));
+        let commands = Arc::new(CommandRegistry::load(&config));
         let tools = Arc::new(recode_tool::ToolRegistry::builtin());
         let providers = Arc::new(Providers::new(config.clone()));
         let mut rules = config.ruleset();
@@ -125,6 +128,7 @@ impl Engine {
             config,
             project: Arc::new(project),
             agents,
+            commands,
             tools,
             providers,
             permissions,
