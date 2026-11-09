@@ -1,7 +1,10 @@
 use crate::config::ConfigManager;
-use recode_schema::config::AgentConfig;
-use recode_schema::permission::Ruleset;
+use crate::frontmatter::Frontmatter;
+use indexmap::IndexMap;
+use recode_schema::config::{AgentConfig, PermissionConfig, PermissionValue};
+use recode_schema::permission::{Decision, Ruleset};
 use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AgentMode {
@@ -96,10 +99,35 @@ impl AgentRegistry {
             hidden: true,
         });
 
+        registry.load_markdown(config);
+        // Explicit JSON configuration outranks markdown files.
         for (id, agent_config) in &config.merged.agent {
             registry.apply(id, agent_config);
         }
         registry
+    }
+
+    /// Load opencode-style `agent(s)/**/*.md` and `mode(s)/*.md` definitions.
+    /// Global files load first, then `.opencode` for compatibility, then the
+    /// native `.recode` directory, so a later file wins on an id collision.
+    fn load_markdown(&mut self, config: &ConfigManager) {
+        let roots = [
+            config.paths.config_dir.clone(),
+            config.project_root.join(".opencode"),
+            config.project_root.join(".recode"),
+        ];
+        for root in roots {
+            for file in discover_markdown(&root) {
+                let Ok(content) = std::fs::read_to_string(&file.path) else {
+                    continue;
+                };
+                let Some(id) = agent_id(&root, &file.path) else {
+                    continue;
+                };
+                let frontmatter = Frontmatter::parse(&content);
+                self.apply(&id, &markdown_config(&frontmatter, file.primary));
+            }
+        }
     }
 
     fn insert(&mut self, agent: Agent) {
@@ -168,6 +196,115 @@ impl AgentRegistry {
     pub fn default_id(&self) -> &str {
         "build"
     }
+}
+
+/// One discovered markdown agent. `primary` is set for the legacy `mode(s)`
+/// directories, whose files always become primary agents.
+struct MarkdownAgent {
+    path: PathBuf,
+    primary: bool,
+}
+
+/// `agent(s)/**/*.md` and `mode(s)/*.md`, sorted by path for determinism.
+fn discover_markdown(root: &Path) -> Vec<MarkdownAgent> {
+    let mut files = Vec::new();
+    for (name, recursive, primary) in [
+        ("agent", true, false),
+        ("agents", true, false),
+        ("mode", false, true),
+        ("modes", false, true),
+    ] {
+        collect_markdown(&root.join(name), recursive, primary, &mut files);
+    }
+    files.sort_by(|left, right| left.path.cmp(&right.path));
+    files.dedup_by(|left, right| left.path == right.path);
+    files
+}
+
+fn collect_markdown(
+    directory: &Path,
+    recursive: bool,
+    primary: bool,
+    files: &mut Vec<MarkdownAgent>,
+) {
+    let Ok(entries) = std::fs::read_dir(directory) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let Ok(kind) = entry.file_type() else {
+            continue;
+        };
+        let path = entry.path();
+        if kind.is_dir() {
+            if recursive {
+                collect_markdown(&path, true, primary, files);
+            }
+            continue;
+        }
+        if kind.is_file() && path.extension().is_some_and(|extension| extension == "md") {
+            files.push(MarkdownAgent { path, primary });
+        }
+    }
+}
+
+/// `agent/review/security.md` under `root` becomes `review/security`.
+fn agent_id(root: &Path, path: &Path) -> Option<String> {
+    let relative = path.strip_prefix(root).ok()?.to_string_lossy();
+    let relative = relative.replace('\\', "/");
+    let (_, name) = relative.split_once('/')?;
+    let name = name.strip_suffix(".md")?;
+    (!name.is_empty()).then(|| name.to_owned())
+}
+
+fn markdown_config(frontmatter: &Frontmatter, primary: bool) -> AgentConfig {
+    let mode = if primary {
+        Some("primary".to_owned())
+    } else {
+        frontmatter
+            .get("mode")
+            .map(|mode| mode.to_ascii_lowercase())
+            .filter(|mode| mode == "primary" || mode == "subagent")
+    };
+    AgentConfig {
+        description: frontmatter
+            .get("description")
+            .unwrap_or_default()
+            .to_owned(),
+        mode,
+        model: frontmatter.get("model").map(str::to_owned),
+        temperature: frontmatter
+            .get("temperature")
+            .and_then(|value| value.parse().ok()),
+        // The body is the system prompt even when empty; inheriting the build
+        // prompt would silently give the agent capabilities it did not ask for.
+        prompt: Some(frontmatter.body.clone()),
+        tools: frontmatter
+            .bool_map("tools")
+            .into_iter()
+            .collect::<IndexMap<_, _>>(),
+        permission: permission_config(frontmatter),
+        disable: frontmatter.boolean("disable"),
+        hidden: frontmatter.boolean("hidden"),
+    }
+}
+
+/// Flat `permission: { bash: ask }` entries. Nested resource maps are only
+/// available through JSON configuration; silently ignore what we cannot map.
+fn permission_config(frontmatter: &Frontmatter) -> PermissionConfig {
+    let permissions = frontmatter
+        .map("permission")
+        .into_iter()
+        .filter_map(|(action, value)| {
+            let decision = match value.to_ascii_lowercase().as_str() {
+                "allow" => Decision::Allow,
+                "ask" => Decision::Ask,
+                "deny" => Decision::Deny,
+                _ => return None,
+            };
+            Some((action, PermissionValue::Action(decision)))
+        })
+        .collect();
+    PermissionConfig(permissions)
 }
 
 const BUILD_PROMPT: &str = r#"You are Re:Code, an AI coding agent running in the user's terminal. You help with software engineering: understanding code, implementing features, fixing bugs, refactoring, running commands, and explaining what you did.
@@ -240,5 +377,103 @@ mod tests {
             .copied()
             .unwrap_or(false));
         assert!(!agents.get("plan").unwrap().tools.contains_key("write"));
+    }
+
+    #[test]
+    fn loads_markdown_agents_from_global_and_project_directories() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = RecodePaths {
+            config_dir: dir.path().join("config"),
+            data_dir: dir.path().join("data"),
+            db_path: dir.path().join("data/recode.db"),
+            auth_path: dir.path().join("config/auth.json"),
+            log_dir: dir.path().join("data/log"),
+            global_config: dir.path().join("config/recode.json"),
+        };
+        std::fs::create_dir_all(paths.config_dir.join("agents/team")).unwrap();
+        std::fs::write(
+            paths.config_dir.join("agents/team/security.md"),
+            "---\ndescription: Security reviewer\nmode: subagent\ntools:\n  edit: false\n  read: true\n---\nYou review security.\n",
+        )
+        .unwrap();
+
+        std::fs::create_dir_all(dir.path().join(".opencode/agent")).unwrap();
+        std::fs::write(
+            dir.path().join(".opencode/agent/reviewer.md"),
+            "---\ndescription: From opencode\n---\nOld prompt.\n",
+        )
+        .unwrap();
+        std::fs::create_dir_all(dir.path().join(".recode/agent")).unwrap();
+        std::fs::write(
+            dir.path().join(".recode/agent/reviewer.md"),
+            "---\ndescription: Code reviewer\ntemperature: 0.2\npermission:\n  bash: ask\n  edit: deny\ntools:\n  write: false\n---\nYou review code carefully.\n",
+        )
+        .unwrap();
+        std::fs::create_dir_all(dir.path().join(".recode/mode")).unwrap();
+        std::fs::write(
+            dir.path().join(".recode/mode/architect.md"),
+            "---\nmode: subagent\n---\nDesign first.\n",
+        )
+        .unwrap();
+
+        let config = ConfigManager::load(paths, dir.path());
+        let agents = AgentRegistry::from_config(&config);
+
+        let security = agents.get("team/security").expect("nested agent id");
+        assert_eq!(security.description, "Security reviewer");
+        assert_eq!(security.mode, AgentMode::Subagent);
+        assert_eq!(security.tools.get("edit"), Some(&false));
+        assert_eq!(security.system_prompt, "You review security.");
+
+        let reviewer = agents.get("reviewer").expect("project agent");
+        assert_eq!(reviewer.description, "Code reviewer");
+        assert_eq!(reviewer.system_prompt, "You review code carefully.");
+        assert_eq!(reviewer.temperature, Some(0.2));
+        assert_eq!(reviewer.mode, AgentMode::Primary);
+        assert_eq!(reviewer.tools.get("write"), Some(&false));
+        assert_eq!(
+            reviewer.permission.evaluate("bash", "cargo test"),
+            Some(Decision::Ask)
+        );
+        assert_eq!(
+            reviewer.permission.evaluate("edit", "src/main.rs"),
+            Some(Decision::Deny)
+        );
+
+        let architect = agents.get("architect").expect("mode agent");
+        assert_eq!(architect.mode, AgentMode::Primary);
+    }
+
+    #[test]
+    fn json_agent_config_overrides_markdown() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = RecodePaths {
+            config_dir: dir.path().join("config"),
+            data_dir: dir.path().join("data"),
+            db_path: dir.path().join("data/recode.db"),
+            auth_path: dir.path().join("config/auth.json"),
+            log_dir: dir.path().join("data/log"),
+            global_config: dir.path().join("config/recode.json"),
+        };
+        std::fs::create_dir_all(&paths.config_dir).unwrap();
+        std::fs::write(
+            &paths.global_config,
+            r#"{"agent":{"reviewer":{"description":"JSON wins","temperature":0.9}}}"#,
+        )
+        .unwrap();
+        std::fs::create_dir_all(dir.path().join(".recode/agent")).unwrap();
+        std::fs::write(
+            dir.path().join(".recode/agent/reviewer.md"),
+            "---\ndescription: Markdown loses\n---\nReview.\n",
+        )
+        .unwrap();
+
+        let config = ConfigManager::load(paths, dir.path());
+        let agents = AgentRegistry::from_config(&config);
+        let reviewer = agents.get("reviewer").expect("reviewer");
+        assert_eq!(reviewer.description, "JSON wins");
+        assert_eq!(reviewer.temperature, Some(0.9));
+        // Markdown still supplies the prompt; JSON config has none.
+        assert_eq!(reviewer.system_prompt, "Review.");
     }
 }

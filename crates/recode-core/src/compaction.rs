@@ -81,10 +81,17 @@ pub async fn compact_session(
         return Ok(None);
     }
     let tokens_before = estimate_tokens(&history);
-    let context_limit = engine.config.model_config(model).limit.context.max(8_000);
+    let model = engine
+        .config
+        .merged
+        .small_model
+        .as_deref()
+        .and_then(|small| engine.config.resolve_model(Some(small)).ok())
+        .unwrap_or_else(|| model.clone());
+    let context_limit = engine.config.model_config(&model).limit.context.max(8_000);
     let budget_chars = (context_limit as usize).saturating_mul(4 * 60 / 100);
     let history = trim_history(history, budget_chars);
-    let provider = engine.providers.get_for(model).await?;
+    let provider = engine.providers.get_for(&model).await?;
     let request = LlmRequest {
         model: model.clone(),
         system: SUMMARY_SYSTEM_PROMPT.to_owned(),

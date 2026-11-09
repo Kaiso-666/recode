@@ -82,7 +82,8 @@ listed; adding an entry can override their endpoint or models.
 ```
 
 `api` selects the wire protocol: `openai` or `anthropic`. Gemini is reached
-through its OpenAI-compatible endpoint.
+through its OpenAI-compatible endpoint. When `smallModel` is set, compaction
+summaries use it; otherwise they use the session model.
 
 ### models.dev catalog
 
@@ -141,6 +142,15 @@ Built-ins: `build`, `plan`, `general`, and `explore`. Configure or add one:
   }
 }
 ```
+
+Markdown agents use opencode's layout: `agent(s)/**/*.md` and `mode(s)/*.md`
+under the global config directory, `.opencode`, or `.recode`. The relative path
+is the id (`agent/review/security.md` becomes `review/security`), and `mode(s)`
+files are always primary agents. Frontmatter accepts `description`, `mode`,
+`model`, `temperature`, `tools`, `permission` (flat allow/ask/deny entries),
+`hidden`, and `disable`; the body becomes the system prompt. Precedence is
+global markdown, `.opencode`, `.recode`, then JSON `agent` entries, so JSON
+configuration always wins.
 
 Project instructions are loaded from `AGENTS.md` and `CLAUDE.md` (plus
 `instructions` globs) and prepended to the system prompt.

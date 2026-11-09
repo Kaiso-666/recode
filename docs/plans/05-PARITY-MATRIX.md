@@ -38,7 +38,7 @@ Status legend: `missing` · `partial` · `done` · `n/a` (explicit non-goal)
 | Permissions (allow/ask/deny) | yes | done (in-process + HTTP broker) |
 | Model questions | yes | done (`question` tool: TUI modal, CLI prompt, HTTP broker) |
 | AGENTS.md instructions | yes | done |
-| Custom agents | yes | M3 |
+| Custom agents | yes | done (JSON, plus opencode-style `agent(s)`/`mode(s)` markdown) |
 | Custom commands | yes | M3 |
 | LSP diagnostics | yes | done (on-demand client; diagnostics in tool results) |
 | MCP | yes | done (stdio + streamable HTTP, tools bridged) |

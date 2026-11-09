@@ -8,6 +8,7 @@ pub mod compaction;
 pub mod config;
 pub mod engine;
 pub mod formatter;
+pub mod frontmatter;
 pub mod instructions;
 pub mod jsonc;
 pub mod lsp;

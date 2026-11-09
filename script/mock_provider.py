@@ -55,6 +55,7 @@ class Handler(BaseHTTPRequestHandler):
                             "messages": len(messages),
                             "roles": [message.get("role") for message in messages],
                             "first": str(messages[0].get("content"))[:120] if messages else "",
+                            "system": system[:200],
                         }
                     )
                     + "\n"

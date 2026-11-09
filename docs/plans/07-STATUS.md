@@ -8,7 +8,7 @@ Last updated: 2026-11-04 (verified build)
 with the OpenCode Zen free tier.
 
 ```
-cargo test --workspace       103 passed, 0 failed
+cargo test --workspace       107 passed, 0 failed
 cargo clippy --workspace --all-targets -- -D warnings   clean
 cargo fmt --all --check       clean
 cargo build --release --locked --bin recode             verified (16m51s)
@@ -21,11 +21,11 @@ cargo build --release --locked --bin recode             verified (16m51s)
 | M0 foundation | ✅ done | 8 crates, CI, fmt/clippy, MIT attribution, `recode --version` |
 | M1 providers + loop | ✅ done | OpenAI + Anthropic SSE; 2 streaming integration tests; mock-provider E2E |
 | M2 tools | ✅ done | bash, read, write, edit, multi_edit, patch, ls, glob, grep, webfetch, todowrite, task (subagent), question (TUI modal + HTTP broker) |
-| M3 config/agents | ✅ done | JSONC (+BOM), JSONC merge, 4 built-in agents, AGENTS.md/CLAUDE.md, auth store |
+| M3 config/agents | ✅ done | JSONC (+BOM), JSONC merge, 4 built-in agents, opencode-style markdown agents (`.opencode`/`.recode`/global), AGENTS.md/CLAUDE.md, auth store |
 | M4 TUI | ✅ verified | transcript, streaming markdown-lite, editor, pickers, permission modal, todo strip — driven in a real ConPTY (`script/tui_smoke.py`), including the approval modal |
 | M5 server | ✅ done | axum API + SSE verified with curl; bearer auth; permission and question brokers; `recode-client`; TUI/CLI attach (`--server`) verified in ConPTY |
 | M6 LSP/MCP | ✅ done | on-demand LSP diagnostics in tool results; MCP stdio + streamable HTTP tools (`mcp__*`); opt-in formatter hooks |
-| M7 sessions at scale | ✅ done | compaction; fork/revert; shadow-git snapshots + file restore; patch tracking; JSON/Markdown export |
+| M7 sessions at scale | ✅ done | compaction (uses `smallModel` when set); fork/revert; shadow-git snapshots + file restore; patch tracking; JSON/Markdown export |
 | M8 polish | 🟡 release plumbing | installers, completions, checksum-verified upgrade, release workflow, docs; release profile builds; signing/benchmarks pending |
 | M9 parity | 🟡 started | OpenCode Zen free models work without an account; models.dev catalog refresh, per-model routing and Console device OAuth with refresh are wired |
 
@@ -68,6 +68,11 @@ cargo build --release --locked --bin recode             verified (16m51s)
   (`script/mock_mcp.py` and an in-test HTTP server). The model calls
   `mcp__mock__echo`, the registry routes it to the server, and the echoed text is
   persisted in the tool part (`tests/mcp.rs`).
+- Markdown agents: `.recode/agent/reviewer.md` with `mode: primary` was selected with
+  `recode run --agent reviewer` against the mock provider; the request log shows the file
+  body as the system prompt, proving discovery, frontmatter parsing and precedence.
+  Unit tests cover global `.opencode`/`.recode` precedence, `mode(s)` primary agents,
+  nested ids, tool/permission maps, and JSON config winning over markdown.
 - Formatters: an opt-in formatter command runs after a successful edit and rewrites the
   file (unit test with a Python one-liner); built-ins stay disabled until enabled.
 - JSON output: `recode run --format json` streams one object per line (`delta`, `event`,

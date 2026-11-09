@@ -637,8 +637,15 @@ impl Engine {
 /// Build the canonical starting model for a session, if one is available.
 pub fn initial_model(engine: &Engine, agent: &Agent) -> Result<ModelRef, String> {
     if let Some(model) = &agent.model {
-        ModelRef::parse(model).ok_or_else(|| format!("agent has invalid model {model:?}"))
-    } else {
-        engine.config.resolve_model(None)
+        // Markdown agents commonly use a bare model id; resolve it against
+        // the configured providers before rejecting the reference.
+        if let Some(model) = ModelRef::parse(model) {
+            return Ok(model);
+        }
+        return engine
+            .config
+            .resolve_model(Some(model))
+            .map_err(|error| format!("agent has invalid model {model:?}: {error}"));
     }
+    engine.config.resolve_model(None)
 }
