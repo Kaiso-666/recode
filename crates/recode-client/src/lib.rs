@@ -32,6 +32,32 @@ pub struct AgentSummary {
 }
 
 #[derive(Clone, Debug, Deserialize)]
+pub struct CommandSummary {
+    pub name: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub agent: Option<String>,
+    #[serde(default)]
+    pub model: Option<String>,
+    #[serde(default)]
+    pub subagent: bool,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct CommandExpansion {
+    pub text: String,
+    #[serde(default)]
+    pub agent: Option<String>,
+    #[serde(default)]
+    pub model: Option<String>,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub subagent: bool,
+}
+
+#[derive(Clone, Debug, Deserialize)]
 pub struct SessionSnapshot {
     pub session: SessionInfo,
     #[serde(default)]
@@ -67,6 +93,12 @@ struct MessagesResponse {
 #[derive(Clone, Debug, Deserialize)]
 struct AgentsResponse {
     agents: Vec<AgentSummary>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+struct CommandsResponse {
+    #[serde(default)]
+    commands: Vec<CommandSummary>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -154,6 +186,24 @@ impl Client {
     pub async fn agents(&self) -> Result<Vec<AgentSummary>, String> {
         let response: AgentsResponse = self.get("/api/agents").await?;
         Ok(response.agents)
+    }
+
+    pub async fn commands(&self) -> Result<Vec<CommandSummary>, String> {
+        let response: CommandsResponse = self.get("/api/commands").await?;
+        Ok(response.commands)
+    }
+
+    /// Expand a custom command on the server, where inline shell interpolation
+    /// runs in the session directory.
+    pub async fn expand_command(
+        &self,
+        session: &str,
+        name: &str,
+        arguments: &str,
+    ) -> Result<CommandExpansion, String> {
+        let body = serde_json::json!({ "sessionId": session, "arguments": arguments });
+        self.post(&format!("/api/commands/{}", encode_segment(name)), &body)
+            .await
     }
 
     pub async fn files(&self) -> Result<Vec<String>, String> {
@@ -372,5 +422,31 @@ impl Client {
             });
         }
         serde_json::from_str(&text).map_err(|error| format!("invalid server response: {error}"))
+    }
+}
+
+/// Percent-encode one path segment so nested command names (`review/security`)
+/// survive `matchit` routing as a single `{name}` parameter.
+fn encode_segment(value: &str) -> String {
+    let mut output = String::with_capacity(value.len());
+    for byte in value.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~') {
+            output.push(byte as char);
+        } else {
+            output.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    output
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn encodes_nested_command_names() {
+        assert_eq!(encode_segment("review"), "review");
+        assert_eq!(encode_segment("review/security"), "review%2Fsecurity");
+        assert_eq!(encode_segment("a b"), "a%20b");
     }
 }

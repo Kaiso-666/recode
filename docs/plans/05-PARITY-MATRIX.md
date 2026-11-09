@@ -9,7 +9,7 @@ Status legend: `missing` · `partial` · `done` · `n/a` (explicit non-goal)
 | `schema` | `recode-schema` | done | Core message/part/tool/llm/config types; v1/compat schemas intentionally skipped |
 | `core` | `recode-core` + `recode-tool` + `recode-storage` | partial | Runner, config, agents, permissions, compaction, subagents, snapshots, LSP, MCP, opt-in formatters |
 | `ai` | `recode-provider` | partial | Canonical LLM events; anthropic/openai-compatible (Gemini via OpenAI endpoint); OpenCode Zen free tier; models.dev snapshot/routing |
-| `server` | `recode-server` | done | axum + SSE, permission/question brokers, file + model/agent + compact routes |
+| `server` | `recode-server` | done | axum + SSE, permission/question brokers, file + model/agent + compact + command routes |
 | `cli` | `recode-cli` | done | run/tui/serve/auth/models/sessions/config; `--server` attach |
 | `tui` | `recode-tui` | done | local + attach modes, `@file`, session search, modals |
 | `protocol` | `recode-server` | partial | Reimplemented public HTTP surface, not exact |
@@ -34,7 +34,7 @@ Status legend: `missing` · `partial` · `done` · `n/a` (explicit non-goal)
 | Resume a session | yes | done (`--session`, TUI picker) |
 | Fork / revert | yes | done (transcript fork, message revert, file restore) |
 | Session compaction | yes | done (manual + automatic) |
-| Subagents (`task`) | yes | done (depth-limited child sessions) |
+| Subagents (`task`) | yes | done (depth-limited child sessions; agent enum injected from the registry) |
 | Permissions (allow/ask/deny) | yes | done (in-process + HTTP broker) |
 | Model questions | yes | done (`question` tool: TUI modal, CLI prompt, HTTP broker) |
 | AGENTS.md instructions | yes | done |

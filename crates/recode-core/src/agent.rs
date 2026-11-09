@@ -192,6 +192,12 @@ impl AgentRegistry {
         self.agents.values().filter(|agent| !agent.hidden)
     }
 
+    /// Every registered agent, including hidden ones such as `explore`, which
+    /// remain valid `task` targets.
+    pub fn all(&self) -> impl Iterator<Item = &Agent> {
+        self.agents.values()
+    }
+
     pub fn default_id(&self) -> &str {
         "build"
     }

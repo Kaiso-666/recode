@@ -8,7 +8,7 @@ Last updated: 2026-11-04 (verified build)
 with the OpenCode Zen free tier.
 
 ```
-cargo test --workspace       112 passed, 0 failed
+cargo test --workspace       115 passed, 0 failed
 cargo clippy --workspace --all-targets -- -D warnings   clean
 cargo fmt --all --check       clean
 cargo build --release --locked --bin recode             verified (16m51s)
@@ -79,6 +79,13 @@ cargo build --release --locked --bin recode             verified (16m51s)
   The same command was typed in the TUI and passed `script/tui_smoke.py` (prompt flag).
   Unit tests cover precedence, quoted arguments, positional/named substitution,
   append-without-placeholders, shell interpolation, and agent/model selection.
+- Server-side commands: `GET /api/commands` lists markdown commands and
+  `POST /api/commands/{name}` expands one in the session directory. `recode run --server`
+  expanded `/review` over HTTP (curl returned the shell-expanded text) and the attached
+  TUI uses the same endpoint, so shell interpolation runs on the server.
+- Task agents: the `task` schema enum is injected from `AgentRegistry::all()` at engine
+  startup, so custom markdown agents can be delegated to instead of the old hardcoded
+  `general`/`explore` pair (unit tests).
 - Formatters: an opt-in formatter command runs after a successful edit and rewrites the
   file (unit test with a Python one-liner); built-ins stay disabled until enabled.
 - JSON output: `recode run --format json` streams one object per line (`delta`, `event`,
@@ -129,7 +136,7 @@ cargo build --release --locked --bin recode             verified (16m51s)
 ## Next actions (in order)
 
 1. M9 parity: diff the CLI/config/TUI surface against the upstream fork and close gaps
-   (themes/keybinds, share, server-side command execution, subagent commands).
+   (themes/keybinds, share, subagent commands).
 2. Benchmark numbers (`script/bench.ps1`) on the release binary; wire benchmarks into CI.
 3. TUI attach over SSE (replace 4–20 Hz polling) and `sessions --server`.
 4. Signed release binaries and parser fuzz tests.

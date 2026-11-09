@@ -202,21 +202,47 @@ impl Backend {
         self.agents().iter().any(|agent| agent.id == id)
     }
 
-    /// Expand a markdown slash command. Remote attach has no command endpoint
-    /// yet, so custom commands are local-only.
+    /// Expand a markdown slash command. With a local engine the template runs
+    /// in-process; in attach mode the server expands it so shell interpolation
+    /// uses the machine that owns the session.
     pub async fn expand_command(
         &self,
         name: &str,
         arguments: &str,
         directory: &Path,
     ) -> Result<Option<Expansion>, String> {
-        let Some(engine) = &self.local else {
-            return Ok(None);
-        };
-        let Some(command) = engine.commands.get(name) else {
-            return Ok(None);
-        };
-        command.expand(arguments, directory).await.map(Some)
+        match (&self.local, &self.remote) {
+            (Some(engine), _) => {
+                let Some(command) = engine.commands.get(name) else {
+                    return Ok(None);
+                };
+                command.expand(arguments, directory).await.map(Some)
+            }
+            (_, Some(remote)) => {
+                if !remote
+                    .client
+                    .commands()
+                    .await?
+                    .iter()
+                    .any(|command| command.name == name)
+                {
+                    return Ok(None);
+                }
+                let session = remote.cache.read().unwrap().session.id.0.clone();
+                let expansion = remote
+                    .client
+                    .expand_command(&session, name, arguments)
+                    .await?;
+                Ok(Some(Expansion {
+                    text: expansion.text,
+                    agent: expansion.agent,
+                    model: expansion.model,
+                    description: expansion.description,
+                    subagent: expansion.subagent,
+                }))
+            }
+            _ => Ok(None),
+        }
     }
 
     pub fn files(&self) -> Vec<String> {

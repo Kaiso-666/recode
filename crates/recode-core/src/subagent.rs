@@ -54,7 +54,7 @@ impl SubagentRunner for EngineSubagent {
                 "unknown subagent type {agent_id:?}; available agents: {}",
                 self.engine
                     .agents
-                    .list()
+                    .all()
                     .map(|agent| agent.id.as_str())
                     .collect::<Vec<_>>()
                     .join(", ")

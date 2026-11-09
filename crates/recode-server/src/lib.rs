@@ -45,6 +45,8 @@ impl Server {
             .route("/health", get(health))
             .route("/api/providers", get(providers))
             .route("/api/agents", get(agents))
+            .route("/api/commands", get(commands))
+            .route("/api/commands/{name}", post(expand_command))
             .route("/api/files", get(files))
             .route("/api/files/content", get(file_content))
             .route("/api/sessions", get(list_sessions).post(create_session))
@@ -163,6 +165,67 @@ async fn agents(State(state): State<AppState>) -> Json<Value> {
         })
         .collect();
     Json(json!({ "agents": agents }))
+}
+
+async fn commands(State(state): State<AppState>) -> Json<Value> {
+    let commands: Vec<Value> = state
+        .engine
+        .commands
+        .list()
+        .map(|command| {
+            json!({
+                "name": command.name,
+                "description": command.description,
+                "agent": command.agent,
+                "model": command.model,
+                "subagent": command.subagent,
+            })
+        })
+        .collect();
+    Json(json!({ "commands": commands }))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ExpandCommandRequest {
+    #[serde(default)]
+    session_id: Option<String>,
+    #[serde(default)]
+    arguments: String,
+}
+
+/// Expand a markdown command server-side so inline shell runs in the project
+/// on the machine that owns the session.
+async fn expand_command(
+    Path(name): Path<String>,
+    State(state): State<AppState>,
+    Json(body): Json<ExpandCommandRequest>,
+) -> Result<Json<Value>, ApiError> {
+    let Some(command) = state.engine.commands.get(&name) else {
+        return Err(ApiError::not_found(format!("unknown command {name:?}")));
+    };
+    let directory = match &body.session_id {
+        Some(id) => {
+            state
+                .engine
+                .session(&recode_schema::id::SessionId::from_existing(id.clone()))
+                .map_err(ApiError::bad_request)?
+                .ok_or_else(|| ApiError::not_found(format!("session {id:?} not found")))?
+                .directory
+        }
+        None => state.engine.project.root.clone(),
+    };
+    let expansion = command
+        .expand(&body.arguments, &directory)
+        .await
+        .map_err(ApiError::bad_request)?;
+    Ok(Json(json!({
+        "text": expansion.text,
+        "agent": expansion.agent,
+        "model": expansion.model,
+        "description": expansion.description,
+        "subagent": expansion.subagent,
+    })))
 }
 
 async fn files(State(state): State<AppState>) -> Json<Value> {
@@ -585,6 +648,8 @@ async fn openapi() -> Json<Value> {
             "/health": {"get": {"operationId": "health"}},
             "/api/providers": {"get": {"operationId": "providers"}},
             "/api/agents": {"get": {"operationId": "agents"}},
+            "/api/commands": {"get": {"operationId": "commands.list"}},
+            "/api/commands/{name}": {"post": {"operationId": "commands.expand"}},
             "/api/files": {"get": {"operationId": "files.list"}},
             "/api/files/content": {"get": {"operationId": "files.content"}},
             "/api/sessions": {"get": {"operationId": "sessions.list"}, "post": {"operationId": "sessions.create"}},

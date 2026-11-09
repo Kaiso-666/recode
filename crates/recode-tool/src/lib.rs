@@ -16,6 +16,7 @@ pub mod todo;
 mod webfetch;
 mod write;
 
+pub use task::TaskTool;
 pub use todo::{todos_for, TodoItem, TodoPriority, TodoStatus};
 
 use async_trait::async_trait;
@@ -187,7 +188,7 @@ impl ToolRegistry {
         registry.register(Arc::new(grep::GrepTool));
         registry.register(Arc::new(patch::PatchTool));
         registry.register(Arc::new(question::QuestionTool));
-        registry.register(Arc::new(task::TaskTool));
+        registry.register(Arc::new(task::TaskTool::default()));
         registry.register(Arc::new(todo::TodoTool));
         registry.register(Arc::new(webfetch::WebFetchTool));
         registry

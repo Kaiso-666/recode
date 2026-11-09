@@ -182,8 +182,9 @@ template. Run a command from the TUI (`/review src/main.rs`) or the CLI:
 recode run "/review src/main.rs"
 ```
 
-Custom commands are expanded locally; attaching to a server keeps the raw text
-until the server command endpoint lands.
+The TUI and CLI expand commands against the local engine, or through
+`POST /api/commands/{name}` when attached to `recode serve`, so inline shell
+always runs on the machine that owns the session.
 
 ## Permissions
 

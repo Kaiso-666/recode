@@ -94,6 +94,9 @@ impl Engine {
         let agents = Arc::new(AgentRegistry::from_config(&config));
         let commands = Arc::new(CommandRegistry::load(&config));
         let tools = Arc::new(recode_tool::ToolRegistry::builtin());
+        tools.register(Arc::new(recode_tool::TaskTool::new(
+            agents.all().map(|agent| agent.id.clone()),
+        )));
         let providers = Arc::new(Providers::new(config.clone()));
         let mut rules = config.ruleset();
         // Baseline protections. Explicit user rules are appended later and win.

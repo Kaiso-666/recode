@@ -561,6 +561,44 @@ async fn run_remote(server: String, args: RunArgs) -> anyhow::Result<()> {
             .await
             .map_err(anyhow::Error::msg)?,
     };
+    if let Some(rest) = prompt.trim().strip_prefix('/') {
+        let (name, arguments) = match rest.split_once(char::is_whitespace) {
+            Some((name, arguments)) => (name, arguments.trim()),
+            None => (rest, ""),
+        };
+        let known = client
+            .commands()
+            .await
+            .map_err(anyhow::Error::msg)?
+            .iter()
+            .any(|command| command.name == name);
+        if known {
+            let expansion = client
+                .expand_command(&session.id.0, name, arguments)
+                .await
+                .map_err(anyhow::Error::msg)?;
+            if expansion.subagent {
+                anyhow::bail!("subagent slash commands are not supported yet");
+            }
+            if args.agent.is_none() {
+                if let Some(agent) = &expansion.agent {
+                    client
+                        .set_agent(&session.id.0, agent)
+                        .await
+                        .map_err(anyhow::Error::msg)?;
+                }
+            }
+            if args.model.is_none() {
+                if let Some(model) = &expansion.model {
+                    client
+                        .set_model(&session.id.0, model)
+                        .await
+                        .map_err(anyhow::Error::msg)?;
+                }
+            }
+            prompt = expansion.text;
+        }
+    }
     if json {
         emit_json(&serde_json::json!({
             "type": "session",

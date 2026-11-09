@@ -5,7 +5,39 @@ use recode_schema::tool::{ToolFailure, ToolOutcome, ToolResult};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-pub struct TaskTool;
+/// Delegates to a child session. The agent list is injected at startup so
+/// custom markdown agents appear in the schema instead of a hardcoded pair.
+pub struct TaskTool {
+    agents: Vec<String>,
+    description: String,
+}
+
+impl Default for TaskTool {
+    fn default() -> Self {
+        Self::new(["general", "explore"])
+    }
+}
+
+impl TaskTool {
+    pub fn new(agents: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        let mut agents: Vec<String> = agents.into_iter().map(Into::into).collect();
+        if agents.is_empty() {
+            agents = ["general".to_owned(), "explore".to_owned()].to_vec();
+        }
+        let description = format!(
+            "Delegate a self-contained task to a subagent with its own context window. The \
+             subagent can use the same tools you can (subject to permissions) and returns its \
+             final answer. Use it to explore large areas, run independent investigations, or \
+             parallelize work. Give it a complete, specific prompt: it cannot see this \
+             conversation. Choose subagent_type from: {}. Defaults to the first one.",
+            agents.join(", ")
+        );
+        Self {
+            agents,
+            description,
+        }
+    }
+}
 
 #[derive(Deserialize)]
 struct Input {
@@ -22,12 +54,7 @@ impl Tool for TaskTool {
     }
 
     fn description(&self) -> &str {
-        "Delegate a self-contained task to a subagent with its own context window. The \
-         subagent can use the same tools you can (subject to permissions) and returns its \
-         final answer. Use it to explore large areas, run independent investigations, or \
-         parallelize work. Give it a complete, specific prompt: it cannot see this \
-         conversation. Choose subagent_type `explore` for read-only search, `general` for \
-         work that may edit files."
+        &self.description
     }
 
     fn schema(&self) -> Value {
@@ -44,8 +71,8 @@ impl Tool for TaskTool {
                 },
                 "subagent_type": {
                     "type": "string",
-                    "enum": ["general", "explore"],
-                    "description": "Which agent to run. Defaults to general."
+                    "enum": self.agents,
+                    "description": "Which agent to run. Defaults to the first listed agent."
                 }
             },
             "required": ["description", "prompt"],
@@ -94,13 +121,39 @@ impl Tool for TaskTool {
                 input.subagent_type.clone(),
             )
             .await?;
+        let agent = input
+            .subagent_type
+            .unwrap_or_else(|| self.agents.first().cloned().unwrap_or_default());
         Ok(ToolOutcome {
             title: Some(format!("Subagent: {}", input.description)),
             output,
-            metadata: Some(
-                json!({"subagent": input.subagent_type.unwrap_or_else(|| "general".into())}),
-            ),
+            metadata: Some(json!({"subagent": agent})),
             attachments: Vec::new(),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn schema_lists_the_configured_agents() {
+        let tool = TaskTool::new(["general", "reviewer", "review/security"]);
+        let schema = tool.schema();
+        assert_eq!(
+            schema.pointer("/properties/subagent_type/enum"),
+            Some(&json!(["general", "reviewer", "review/security"]))
+        );
+        assert!(tool.description().contains("review/security"));
+    }
+
+    #[test]
+    fn falls_back_to_the_default_agents() {
+        let tool = TaskTool::new(Vec::<String>::new());
+        assert_eq!(
+            tool.schema().pointer("/properties/subagent_type/enum"),
+            Some(&json!(["general", "explore"]))
+        );
     }
 }
