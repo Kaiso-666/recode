@@ -215,15 +215,16 @@ cargo build --release --locked --bin recode             verified (16m51s)
   streaming is chunky but durable events are never lost. Server-side permissions/questions
   appear as normal modals and replies go through `POST /api/permissions|questions/{id}`.
   `@file` completion uses `GET /api/files`; submitting expands files with
-  `GET /api/files/content`, so the TUI can run on a different machine. `run --server`
-  rejects `--file` and, without `--auto`, rejects tool approvals (use the TUI to attach
-  interactively).
+  `GET /api/files/content`, so the TUI can run on a different machine. `/` completion
+  fetches `GET /api/commands`, and entering one expands it through
+  `POST /api/commands/{name}`. `run --server` rejects `--file` and, without `--auto`,
+  rejects tool approvals (use the TUI to attach interactively).
 
 ## Architecture notes
 
-- `Engine` owns `Store`, `ConfigManager`, `Project`, `AgentRegistry`, `ToolRegistry`,
-  `Providers`, `PermissionService`, `QuestionService`, `SnapshotService`, `LspManager`,
-  `McpManager`, `FormatterService`, a broadcast bus, and the active-run map.
+- `Engine` owns `Store`, `ConfigManager`, `Project`, `AgentRegistry`, `CommandRegistry`,
+  `ToolRegistry`, `Providers`, `PermissionService`, `QuestionService`, `SnapshotService`,
+  `LspManager`, `McpManager`, `FormatterService`, a broadcast bus, and the active-run map.
 - `recode-client` is the HTTP facade used by attach clients; the TUI's `Backend` wraps
   either an `Arc<Engine>` or a cached `Client`, so the app renders one session model in
   both modes. Writes are async; reads come from the cache or SQLite synchronously.
