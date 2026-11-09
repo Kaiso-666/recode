@@ -8,7 +8,7 @@ Last updated: 2026-11-09 (verified release build + benchmark)
 OpenCode Zen free tier, models.dev, Console OAuth, and markdown agents/commands.
 
 ```
-cargo test --workspace       116 passed, 0 failed
+cargo test --workspace       117 passed, 0 failed
 cargo clippy --workspace --all-targets -- -D warnings   clean
 cargo fmt --all --check       clean
 cargo build --release --locked --bin recode             verified (20m07s, jobs=1)
@@ -75,6 +75,9 @@ binary                       18.0 MiB
   body as the system prompt, proving discovery, frontmatter parsing and precedence.
   Unit tests cover global `.opencode`/`.recode` precedence, `mode(s)` primary agents,
   nested ids, tool/permission maps, and JSON config winning over markdown.
+- Agent models: an agent's `model` now drives new sessions and is adopted when switching
+  agents through the TUI/CLI; an explicit `--model` still wins. Fixed a bug where
+  `create_session` always resolved the global default instead.
 - Custom commands: `.recode/command/review.md` with `agent: reviewer`, `$1`/`$ARGUMENTS`
   and ``!`echo shell-win` `` was run as `recode run "/review a.txt second"`; the model
   request carried the Reviewer system prompt and the expanded prompt with shell output.

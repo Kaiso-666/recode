@@ -75,6 +75,17 @@ pub async fn run(args: RunArgs) -> anyhow::Result<()> {
             .map_err(anyhow::Error::msg)?
     };
 
+    // Apply the agent first: selecting an agent can switch its preferred model,
+    // and an explicit --model must win over that.
+    if let Some(agent) = &args.agent {
+        engine
+            .set_agent(&session.id, agent.clone())
+            .map_err(anyhow::Error::msg)?;
+        session = engine
+            .session(&session.id)
+            .map_err(anyhow::Error::msg)?
+            .context("session disappeared")?;
+    }
     if let Some(model) = &args.model {
         let model = engine
             .config
@@ -82,15 +93,6 @@ pub async fn run(args: RunArgs) -> anyhow::Result<()> {
             .map_err(anyhow::Error::msg)?;
         engine
             .set_model(&session.id, model)
-            .map_err(anyhow::Error::msg)?;
-        session = engine
-            .session(&session.id)
-            .map_err(anyhow::Error::msg)?
-            .context("session disappeared")?;
-    }
-    if let Some(agent) = &args.agent {
-        engine
-            .set_agent(&session.id, agent.clone())
             .map_err(anyhow::Error::msg)?;
         session = engine
             .session(&session.id)

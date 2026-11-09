@@ -50,6 +50,55 @@ fn append_text(engine: &Engine, session_id: &SessionId, role: Role, text: &str) 
 }
 
 #[test]
+fn agent_markdown_model_wins_over_the_global_default() {
+    let dir = tempfile::tempdir().unwrap();
+    let project = dir.path().join("project");
+    std::fs::create_dir_all(project.join(".recode/agent")).unwrap();
+    std::fs::write(
+        project.join(".recode/agent/reviewer.md"),
+        "---\nmodel: acme/acme-chat\n---\nReview code.\n",
+    )
+    .unwrap();
+    let config_dir = dir.path().join("config");
+    std::fs::create_dir_all(&config_dir).unwrap();
+    std::fs::write(
+        config_dir.join("recode.json"),
+        r#"{"model":"openai/gpt-5"}"#,
+    )
+    .unwrap();
+    let engine = engine(dir.path(), &config_dir);
+
+    let session = engine
+        .create_session(Some("reviewer".into()), None, None)
+        .unwrap();
+    assert_eq!(
+        session.model.as_ref().map(|model| model.qualified()),
+        Some("acme/acme-chat".to_owned())
+    );
+
+    let explicit = recode_schema::model::ModelRef::new("anthropic", "claude-sonnet-4-5");
+    let session = engine
+        .create_session(Some("reviewer".into()), Some(explicit.clone()), None)
+        .unwrap();
+    assert_eq!(session.model, Some(explicit));
+
+    // Switching to the agent later also adopts its model.
+    let session = engine
+        .create_session(Some("build".into()), None, None)
+        .unwrap();
+    assert_eq!(
+        session.model.as_ref().map(|model| model.qualified()),
+        Some("openai/gpt-5".to_owned())
+    );
+    engine.set_agent(&session.id, "reviewer").unwrap();
+    let session = engine.session(&session.id).unwrap().unwrap();
+    assert_eq!(
+        session.model.as_ref().map(|model| model.qualified()),
+        Some("acme/acme-chat".to_owned())
+    );
+}
+
+#[test]
 fn fork_copies_the_transcript_and_revert_trims_it() {
     let dir = tempfile::tempdir().unwrap();
     let project = dir.path().join("project");

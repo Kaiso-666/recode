@@ -160,9 +160,11 @@ impl Engine {
         title: Option<String>,
     ) -> Result<SessionInfo, String> {
         let agent = agent.unwrap_or_else(|| self.config.default_agent());
+        // An agent's configured model outranks the global default, but an
+        // explicit caller selection wins over both.
         let model = match model {
             Some(model) => Some(model),
-            None => self.config.resolve_model(None).ok(),
+            None => initial_model(self, self.agent(&agent)).ok(),
         };
         let mut session = SessionInfo::new(self.project.info.id.clone(), self.project.root.clone());
         session.agent = Some(agent);
@@ -413,7 +415,17 @@ impl Engine {
         let Some(mut session) = self.session(session_id)? else {
             return Err("session not found".into());
         };
-        session.agent = Some(agent.into());
+        let agent = agent.into();
+        // Selecting an agent with a preferred model switches the session,
+        // matching the agent/model pairing used when the session was created.
+        if self
+            .agents
+            .get(&agent)
+            .is_some_and(|agent| agent.model.is_some())
+        {
+            session.model = Some(initial_model(self, self.agent(&agent))?);
+        }
+        session.agent = Some(agent);
         session.updated_at = recode_schema::now_ms();
         self.store
             .update_session(session)
