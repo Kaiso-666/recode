@@ -68,7 +68,7 @@ fn draw_completion(frame: &mut Frame, app: &App, input_area: Rect, area: Rect) {
         .borders(Borders::ALL)
         .border_style(Style::default().fg(DIM))
         .title(Span::styled(
-            format!(" @{} ", completion.prefix),
+            format!(" {}{} ", completion.sigil, completion.prefix),
             Style::default().fg(DIM),
         ));
     let inner = block.inner(rect);
@@ -464,7 +464,7 @@ fn draw_overlay(frame: &mut Frame, app: &App, area: Rect) {
 
     match app.overlay {
         Overlay::Help => {
-            let lines: Vec<Line> = [
+            let mut lines: Vec<Line> = [
                 "",
                 "  Enter            send the message",
                 "  Alt+Enter / ^J   insert a newline",
@@ -484,6 +484,19 @@ fn draw_overlay(frame: &mut Frame, app: &App, area: Rect) {
             .iter()
             .map(|line| Line::from(Span::styled(*line, Style::default().fg(TEXT))))
             .collect();
+            let custom: Vec<String> = app
+                .backend
+                .commands()
+                .into_iter()
+                .map(|command| format!("/{}", command.name))
+                .collect();
+            if !custom.is_empty() {
+                lines.push(Line::from(""));
+                lines.push(Line::from(Span::styled(
+                    format!("  Custom commands  {}", custom.join(" ")),
+                    Style::default().fg(TEXT),
+                )));
+            }
             frame.render_widget(Paragraph::new(lines), inner);
         }
         Overlay::Model | Overlay::Agent | Overlay::Sessions => {

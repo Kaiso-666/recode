@@ -77,6 +77,11 @@ def main():
     parser.add_argument("--write", action="store_true")
     parser.add_argument("--undo", action="store_true")
     parser.add_argument("--complete", action="store_true")
+    parser.add_argument(
+        "--slash",
+        action="store_true",
+        help="Type /re and assert the /review custom command completes.",
+    )
     parser.add_argument("--search", action="store_true")
     parser.add_argument(
         "--prompt",
@@ -118,6 +123,12 @@ def main():
             prompt = "write a.txt"
         if args.prompt:
             prompt = args.prompt
+        if args.slash:
+            session.send("/rev")
+            if not session.wait_for("/review", timeout=10):
+                failures.append("custom command completion did not appear")
+            session.send("\x7f" * 4)  # erase /rev
+            time.sleep(0.3)
         if args.complete:
             session.send("read @a")
             if not session.wait_for("a.txt", timeout=10):

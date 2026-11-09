@@ -8,7 +8,7 @@ Last updated: 2026-11-04 (verified build)
 with the OpenCode Zen free tier.
 
 ```
-cargo test --workspace       115 passed, 0 failed
+cargo test --workspace       116 passed, 0 failed
 cargo clippy --workspace --all-targets -- -D warnings   clean
 cargo fmt --all --check       clean
 cargo build --release --locked --bin recode             verified (16m51s)
@@ -22,7 +22,7 @@ cargo build --release --locked --bin recode             verified (16m51s)
 | M1 providers + loop | ✅ done | OpenAI + Anthropic SSE; 2 streaming integration tests; mock-provider E2E |
 | M2 tools | ✅ done | bash, read, write, edit, multi_edit, patch, ls, glob, grep, webfetch, todowrite, task (subagent), question (TUI modal + HTTP broker) |
 | M3 config/agents | ✅ done | JSONC (+BOM), JSONC merge, 4 built-in agents, opencode-style markdown agents and slash commands (`.opencode`/`.recode`/global), AGENTS.md/CLAUDE.md, auth store |
-| M4 TUI | ✅ verified | transcript, streaming markdown-lite, editor, pickers, permission modal, todo strip — driven in a real ConPTY (`script/tui_smoke.py`), including the approval modal |
+| M4 TUI | ✅ verified | transcript, streaming markdown-lite, editor, pickers, `/` command completion, permission modal, todo strip — driven in a real ConPTY (`script/tui_smoke.py`), including the approval modal |
 | M5 server | ✅ done | axum API + SSE verified with curl; bearer auth; permission and question brokers; `recode-client`; TUI/CLI attach (`--server`) verified in ConPTY |
 | M6 LSP/MCP | ✅ done | on-demand LSP diagnostics in tool results; MCP stdio + streamable HTTP tools (`mcp__*`); opt-in formatter hooks |
 | M7 sessions at scale | ✅ done | compaction (uses `smallModel` when set); fork/revert; shadow-git snapshots + file restore; patch tracking; JSON/Markdown export |
@@ -76,7 +76,8 @@ cargo build --release --locked --bin recode             verified (16m51s)
 - Custom commands: `.recode/command/review.md` with `agent: reviewer`, `$1`/`$ARGUMENTS`
   and ``!`echo shell-win` `` was run as `recode run "/review a.txt second"`; the model
   request carried the Reviewer system prompt and the expanded prompt with shell output.
-  The same command was typed in the TUI and passed `script/tui_smoke.py` (prompt flag).
+  The same command was typed in the TUI and passed `script/tui_smoke.py` (prompt flag);
+  its `/rev` completion row was asserted in the ConPTY, and F1 lists custom commands.
   Unit tests cover precedence, quoted arguments, positional/named substitution,
   append-without-placeholders, shell interpolation, and agent/model selection.
 - Server-side commands: `GET /api/commands` lists markdown commands and

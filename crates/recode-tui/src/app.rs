@@ -27,13 +27,15 @@ pub struct PickerItem {
     pub value: String,
 }
 
-/// Inline `@path` completion state.
+/// Inline `@path` and `/command` completion state.
 #[derive(Clone, Debug)]
 pub struct Completion {
-    /// Character index of the `@` in the current input line.
+    /// Character index of the token in the current input line.
     pub start: usize,
-    /// Text typed after `@`, used for filtering.
+    /// Text typed after the sigil, used for filtering.
     pub prefix: String,
+    /// `@` replaces `@prefix`; `/` replaces the whole command token.
+    pub sigil: char,
     pub items: Vec<String>,
     pub index: usize,
 }
@@ -715,42 +717,76 @@ impl App {
         self.reload();
     }
 
-    /// Recompute the `@file` menu for the token under the cursor.
+    /// Recompute the `@file` or `/command` menu for the token under the cursor.
     fn refresh_completion(&mut self) {
-        let Some((start, prefix)) = self.completion_token() else {
-            self.completion = None;
-            return;
-        };
-        if self.file_cache.is_empty() {
-            self.file_cache = self.backend.files();
-        }
-        let needle = prefix.to_ascii_lowercase();
-        let mut items: Vec<String> = self
-            .file_cache
-            .iter()
-            .filter(|path| path.to_ascii_lowercase().starts_with(&needle))
-            .take(50)
-            .cloned()
-            .collect();
-        if items.is_empty() && !needle.is_empty() {
-            items = self
+        if let Some((start, prefix)) = self.completion_token() {
+            if self.file_cache.is_empty() {
+                self.file_cache = self.backend.files();
+            }
+            let needle = prefix.to_ascii_lowercase();
+            let mut items: Vec<String> = self
                 .file_cache
                 .iter()
-                .filter(|path| path.to_ascii_lowercase().contains(&needle))
+                .filter(|path| path.to_ascii_lowercase().starts_with(&needle))
                 .take(50)
                 .cloned()
                 .collect();
+            if items.is_empty() && !needle.is_empty() {
+                items = self
+                    .file_cache
+                    .iter()
+                    .filter(|path| path.to_ascii_lowercase().contains(&needle))
+                    .take(50)
+                    .cloned()
+                    .collect();
+            }
+            if !items.is_empty() {
+                self.completion = Some(Completion {
+                    start,
+                    prefix,
+                    sigil: '@',
+                    items,
+                    index: 0,
+                });
+                return;
+            }
         }
+        let Some((start, prefix)) = self.slash_token() else {
+            self.completion = None;
+            return;
+        };
+        let needle = prefix.to_ascii_lowercase();
+        let mut items: Vec<String> = builtin_commands()
+            .iter()
+            .map(|(name, _)| (*name).to_owned())
+            .chain(
+                self.backend
+                    .commands()
+                    .into_iter()
+                    .map(|command| format!("/{}", command.name)),
+            )
+            .filter(|name| name.to_ascii_lowercase().starts_with(&needle))
+            .collect();
+        items.sort();
+        items.dedup();
         if items.is_empty() {
             self.completion = None;
             return;
         }
         self.completion = Some(Completion {
             start,
-            prefix,
+            // The leading `/` is part of the item text, so filter on the rest.
+            prefix: prefix.trim_start_matches('/').to_owned(),
+            sigil: '/',
             items,
             index: 0,
         });
+    }
+
+    /// The `/command` token when the cursor is still in the first word.
+    fn slash_token(&self) -> Option<(usize, String)> {
+        let line = self.input.lines.get(self.input.row)?;
+        slash_token(line, self.input.col)
     }
 
     /// The `@` token that ends at the cursor, if any: `(at_char_index, prefix)`.
@@ -773,7 +809,10 @@ impl App {
             .map(|line| line.chars().count())
             .unwrap_or(0);
         let trailing = if self.input.col >= line_len { " " } else { "" };
-        let text = format!("@{item}{trailing}");
+        let text = match completion.sigil {
+            '@' => format!("@{item}{trailing}"),
+            _ => format!("{item}{trailing}"),
+        };
         self.input
             .replace_token(completion.start, self.input.col, &text);
     }
@@ -1139,6 +1178,40 @@ impl App {
     }
 }
 
+/// Slash commands offered by the TUI itself. Markdown commands are appended
+/// from the backend at completion time.
+fn builtin_commands() -> &'static [(&'static str, &'static str)] {
+    &[
+        ("/help", "show keybindings and commands"),
+        ("/new", "start a new session"),
+        ("/model", "choose a model"),
+        ("/agent", "choose an agent"),
+        ("/sessions", "resume a session"),
+        ("/fork", "fork the current session"),
+        ("/undo", "revert the last message and files"),
+        ("/compact", "summarize the conversation"),
+        ("/abort", "abort the current run"),
+        ("/reasoning", "toggle reasoning visibility"),
+        ("/clear", "clear the input"),
+        ("/quit", "quit Re:Code"),
+    ]
+}
+
+fn slash_token(line: &str, cursor: usize) -> Option<(usize, String)> {
+    if !line.starts_with('/') {
+        return None;
+    }
+    let chars: Vec<char> = line.chars().collect();
+    let cursor = cursor.min(chars.len());
+    if chars[..cursor]
+        .iter()
+        .any(|character| character.is_whitespace())
+    {
+        return None;
+    }
+    Some((0, chars[..cursor].iter().collect()))
+}
+
 fn at_token(line: &str, cursor: usize) -> Option<(usize, String)> {
     let chars: Vec<char> = line.chars().collect();
     let cursor = cursor.min(chars.len());
@@ -1171,5 +1244,14 @@ mod tests {
         assert_eq!(at_token("mail@host", 9), None);
         assert_eq!(at_token("plain", 5), None);
         assert_eq!(at_token("@a", 0), None);
+    }
+
+    #[test]
+    fn finds_a_slash_command_only_in_the_first_word() {
+        assert_eq!(slash_token("/mo", 3), Some((0, "/mo".to_owned())));
+        assert_eq!(slash_token("/model gpt", 6), Some((0, "/model".to_owned())));
+        assert_eq!(slash_token("/model gpt", 7), None);
+        assert_eq!(slash_token("/review src/main.rs", 8), None);
+        assert_eq!(slash_token("text /mo", 8), None);
     }
 }

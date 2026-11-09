@@ -176,7 +176,9 @@ Extra context from the caller: $ARGUMENTS
 Templates support `$ARGUMENTS`, positional `$1`…`$N` (the highest placeholder
 consumes the remaining arguments), and inline shell interpolation with
 ``!`command` ``. With no placeholders the typed arguments are appended to the
-template. Run a command from the TUI (`/review src/main.rs`) or the CLI:
+template. Typing `/` in the TUI completes built-in and custom commands, and F1
+lists the custom ones. Run a command from the TUI (`/review src/main.rs`) or the
+CLI:
 
 ```sh
 recode run "/review src/main.rs"

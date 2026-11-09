@@ -25,6 +25,12 @@ pub struct AgentView {
     pub description: String,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CommandView {
+    pub name: String,
+    pub description: String,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct Poll {
     pub permissions: Vec<PermissionRequest>,
@@ -38,6 +44,7 @@ struct RemoteCache {
     sessions: Vec<SessionInfo>,
     providers: Vec<ProviderSummary>,
     agents: Vec<AgentView>,
+    commands: Vec<CommandView>,
     files: Vec<String>,
     busy: bool,
 }
@@ -76,6 +83,7 @@ impl Backend {
         let sessions = client.sessions(true).await.unwrap_or_default();
         let providers = client.providers().await.unwrap_or_default();
         let agents = client.agents().await.unwrap_or_default();
+        let commands = client.commands().await.unwrap_or_default();
         let files = client.files().await.unwrap_or_default();
         let (bus, _) = tokio::sync::broadcast::channel(16);
         let cache = RemoteCache {
@@ -97,6 +105,13 @@ impl Backend {
                     id: agent.id,
                     name: agent.name,
                     description: agent.description,
+                })
+                .collect(),
+            commands: commands
+                .into_iter()
+                .map(|command| CommandView {
+                    name: command.name,
+                    description: command.description,
                 })
                 .collect(),
             files,
@@ -200,6 +215,23 @@ impl Backend {
 
     pub fn has_agent(&self, id: &str) -> bool {
         self.agents().iter().any(|agent| agent.id == id)
+    }
+
+    /// Custom slash commands, used for completion and to decide whether a
+    /// leading `/name` should be expanded instead of sent as text.
+    pub fn commands(&self) -> Vec<CommandView> {
+        match (&self.local, &self.remote) {
+            (Some(engine), _) => engine
+                .commands
+                .list()
+                .map(|command| CommandView {
+                    name: command.name.clone(),
+                    description: command.description.clone(),
+                })
+                .collect(),
+            (_, Some(remote)) => remote.cache.read().unwrap().commands.clone(),
+            _ => Vec::new(),
+        }
     }
 
     /// Expand a markdown slash command. With a local engine the template runs
