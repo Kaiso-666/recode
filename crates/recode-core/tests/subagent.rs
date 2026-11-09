@@ -138,10 +138,12 @@ async fn task_tool_runs_a_child_session() {
     );
 
     let sessions = engine.sessions(false).unwrap();
-    let child = sessions
-        .iter()
-        .find(|candidate| candidate.parent_id.as_ref() == Some(&session.id))
-        .expect("child session");
+    assert!(
+        sessions.iter().all(|session| session.parent_id.is_none()),
+        "subagent sessions must stay out of the session picker"
+    );
+    let children = engine.child_sessions(&session.id).unwrap();
+    let child = children.first().expect("child session");
     assert_eq!(child.agent.as_deref(), Some("general"));
     assert!(child
         .metadata

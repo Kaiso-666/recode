@@ -46,7 +46,10 @@ binary                       18.0 MiB
 - Compaction: `recode sessions compact <id>` writes a `session.compacted` event; a following
   request contains the summary instead of the original tool transcript (integration test).
 - Subagents: a `task` tool call creates a child session, runs it to idle, and returns its
-  final answer to the parent (integration test).
+  final answer to the parent (integration test). Child sessions stay out of
+  `Engine::sessions`/`all_sessions`, so the TUI picker, `/api/sessions`, `sessions list`,
+  and `run --continue` only see top-level sessions; `Engine::child_sessions` exposes a
+  parent's children for inspection.
 - Patch: unified diffs with multi-file hunks, CRLF preservation, and all-or-nothing
   validation; `patch` is registered as an edit-class tool (unit tests).
 - Questions: a `question` tool call surfaces a modal in the TUI (verified through

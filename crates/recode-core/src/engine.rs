@@ -338,15 +338,32 @@ impl Engine {
             .map_err(|error| error.to_string())
     }
 
+    /// Top-level sessions for the current project. Child sessions created by
+    /// the `task` tool are excluded so pickers and `--continue` never land on
+    /// a subagent transcript; use [`Engine::child_sessions`] to inspect them.
     pub fn sessions(&self, include_archived: bool) -> Result<Vec<SessionInfo>, String> {
         self.store
-            .list_sessions(Some(&self.project.info.id), include_archived, 200)
+            .list_sessions(Some(&self.project.info.id), include_archived, true, 200)
             .map_err(|error| error.to_string())
     }
 
+    /// Top-level sessions across every known project, newest first.
     pub fn all_sessions(&self, include_archived: bool) -> Result<Vec<SessionInfo>, String> {
         self.store
-            .list_sessions(None, include_archived, 500)
+            .list_sessions(None, include_archived, true, 500)
+            .map_err(|error| error.to_string())
+    }
+
+    /// Child sessions spawned by `parent_id`, newest first.
+    pub fn child_sessions(&self, parent_id: &SessionId) -> Result<Vec<SessionInfo>, String> {
+        self.store
+            .list_sessions(Some(&self.project.info.id), true, false, 200)
+            .map(|sessions| {
+                sessions
+                    .into_iter()
+                    .filter(|session| session.parent_id.as_ref() == Some(parent_id))
+                    .collect()
+            })
             .map_err(|error| error.to_string())
     }
 

@@ -308,48 +308,38 @@ impl Store {
         }
     }
 
+    /// List sessions, newest first. `roots_only` excludes subagent children so
+    /// pickers and session lists never show them; pass `false` to see every
+    /// session (for example to inspect a child transcript).
     pub fn list_sessions(
         &self,
         project_id: Option<&ProjectId>,
         include_archived: bool,
+        roots_only: bool,
         limit: u32,
     ) -> Result<Vec<SessionInfo>> {
         let conn = self.conn.lock();
-        let sql = match (project_id.is_some(), include_archived) {
-            (true, true) => {
-                "SELECT id, project_id, directory, title, parent_id, created_at, updated_at,
-                        archived, agent, model, metadata
-                 FROM session WHERE project_id = ?1 ORDER BY updated_at DESC LIMIT ?2"
-            }
-            (true, false) => {
-                "SELECT id, project_id, directory, title, parent_id, created_at, updated_at,
-                        archived, agent, model, metadata
-                 FROM session WHERE project_id = ?1 AND archived = 0
-                 ORDER BY updated_at DESC LIMIT ?2"
-            }
-            (false, true) => {
-                "SELECT id, project_id, directory, title, parent_id, created_at, updated_at,
-                        archived, agent, model, metadata
-                 FROM session ORDER BY updated_at DESC LIMIT ?1"
-            }
-            (false, false) => {
-                "SELECT id, project_id, directory, title, parent_id, created_at, updated_at,
-                        archived, agent, model, metadata
-                 FROM session WHERE archived = 0 ORDER BY updated_at DESC LIMIT ?1"
-            }
-        };
-        let mut stmt = conn.prepare(sql)?;
+        let mut stmt = conn.prepare(
+            "SELECT id, project_id, directory, title, parent_id, created_at, updated_at,
+                    archived, agent, model, metadata
+             FROM session
+             WHERE (?1 IS NULL OR project_id = ?1)
+               AND (?2 OR archived = 0)
+               AND (NOT ?3 OR parent_id IS NULL)
+             ORDER BY updated_at DESC LIMIT ?4",
+        )?;
+        let rows = stmt.query_map(
+            params![
+                project_id.map(|project_id| project_id.0.as_str()),
+                include_archived,
+                roots_only,
+                limit
+            ],
+            session_from_row,
+        )?;
         let mut sessions = Vec::new();
-        if let Some(project_id) = project_id {
-            let rows = stmt.query_map(params![project_id.0, limit], session_from_row)?;
-            for row in rows {
-                sessions.push(row?);
-            }
-        } else {
-            let rows = stmt.query_map(params![limit], session_from_row)?;
-            for row in rows {
-                sessions.push(row?);
-            }
+        for row in rows {
+            sessions.push(row?);
         }
         Ok(sessions)
     }
