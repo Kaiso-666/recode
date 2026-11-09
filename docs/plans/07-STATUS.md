@@ -1,17 +1,19 @@
 # 07 — Live status
 
-Last updated: 2026-11-04 (verified build)
+Last updated: 2026-11-09 (verified release build + benchmark)
 
 ## Current state
 
-**Phase:** M2–M8 complete (signing/benchmarks pending); M9 opencode parity started
-with the OpenCode Zen free tier.
+**Phase:** M2–M8 complete (signing pending); M9 opencode parity started with the
+OpenCode Zen free tier, models.dev, Console OAuth, and markdown agents/commands.
 
 ```
 cargo test --workspace       116 passed, 0 failed
 cargo clippy --workspace --all-targets -- -D warnings   clean
 cargo fmt --all --check       clean
-cargo build --release --locked --bin recode             verified (16m51s)
+cargo build --release --locked --bin recode             verified (20m07s, jobs=1)
+startup                      mean 39.1 ms, p50 38.6 ms, p95 46.7 ms (20 runs)
+binary                       18.0 MiB
 ```
 
 ### Milestones
@@ -26,7 +28,7 @@ cargo build --release --locked --bin recode             verified (16m51s)
 | M5 server | ✅ done | axum API + SSE verified with curl; bearer auth; permission and question brokers; `recode-client`; TUI/CLI attach (`--server`) verified in ConPTY |
 | M6 LSP/MCP | ✅ done | on-demand LSP diagnostics in tool results; MCP stdio + streamable HTTP tools (`mcp__*`); opt-in formatter hooks |
 | M7 sessions at scale | ✅ done | compaction (uses `smallModel` when set); fork/revert; shadow-git snapshots + file restore; patch tracking; JSON/Markdown export |
-| M8 polish | 🟡 release plumbing | installers, completions, checksum-verified upgrade, release workflow, docs; release profile builds; signing/benchmarks pending |
+| M8 polish | 🟡 signing pending | installers, completions, checksum-verified upgrade, release workflow, docs; release build and startup benchmark measured; signing pending |
 | M9 parity | 🟡 started | OpenCode Zen free models work without an account; models.dev catalog refresh, per-model routing and Console device OAuth with refresh are wired |
 
 ### Verified end-to-end
@@ -87,6 +89,9 @@ cargo build --release --locked --bin recode             verified (16m51s)
 - Task agents: the `task` schema enum is injected from `AgentRegistry::all()` at engine
   startup, so custom markdown agents can be delegated to instead of the old hardcoded
   `general`/`explore` pair (unit tests).
+- Release benchmark: `script/bench.ps1 -Runs 20` on the release binary measured startup at
+  mean 39.1 ms / p50 38.6 ms / p95 46.7 ms and an 18.0 MiB executable; the release build
+  took 20m07s with `CARGO_BUILD_JOBS=1`.
 - Formatters: an opt-in formatter command runs after a successful edit and rewrites the
   file (unit test with a Python one-liner); built-ins stay disabled until enabled.
 - JSON output: `recode run --format json` streams one object per line (`delta`, `event`,
@@ -138,7 +143,7 @@ cargo build --release --locked --bin recode             verified (16m51s)
 
 1. M9 parity: diff the CLI/config/TUI surface against the upstream fork and close gaps
    (themes/keybinds, share, subagent commands).
-2. Benchmark numbers (`script/bench.ps1`) on the release binary; wire benchmarks into CI.
+2. Wire the benchmark into CI and track regressions.
 3. TUI attach over SSE (replace 4–20 Hz polling) and `sessions --server`.
 4. Signed release binaries and parser fuzz tests.
 
