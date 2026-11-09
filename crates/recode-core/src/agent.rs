@@ -188,8 +188,12 @@ impl AgentRegistry {
             .expect("build agent is always registered")
     }
 
+    /// Agents a user can select for the main session. Subagents are excluded
+    /// from pickers even though `task` can target them.
     pub fn list(&self) -> impl Iterator<Item = &Agent> {
-        self.agents.values().filter(|agent| !agent.hidden)
+        self.agents
+            .values()
+            .filter(|agent| !agent.hidden && agent.mode == AgentMode::Primary)
     }
 
     /// Every registered agent, including hidden ones such as `explore`, which
@@ -332,6 +336,9 @@ mod tests {
             .copied()
             .unwrap_or(false));
         assert!(!agents.get("plan").unwrap().tools.contains_key("write"));
+        let selectable: Vec<&str> = agents.list().map(|agent| agent.id.as_str()).collect();
+        assert_eq!(selectable, ["build", "plan"]);
+        assert!(agents.all().any(|agent| agent.id == "general"));
     }
 
     #[test]
