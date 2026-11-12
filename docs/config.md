@@ -305,4 +305,3 @@ The theme picks the colours the terminal UI draws with; `recode` is the
 default. `recode tui --theme gruvbox` overrides the configuration for one
 run, and `/theme <name>` switches it while the UI is open (`/theme` on its
 own lists the names). An unknown name falls back to the default.
-
