@@ -89,11 +89,12 @@ recode tui --server http://127.0.0.1:4096 --token secret
 ```
 
 The attached TUI shows the same sessions, streams local runs, and answers
-permission and question prompts over HTTP. `recode run --server URL --token T
---auto "…"` is the headless equivalent; without `--auto` tool approvals are
-rejected. `recode sessions --server URL --token T list` (and `show`, `export`,
-`fork`, `revert`, `restore`, `compact`, `delete`) works against the same
-server. Tokens may also come from `RECODE_SERVER_TOKEN`.
+permission and question prompts over HTTP. It follows the server's event
+stream, so text arrives while the model is writing. `recode run --server URL
+--token T --auto "…"` is the headless equivalent; without `--auto` tool
+approvals are rejected. `recode sessions --server URL --token T list` (and
+`show`, `export`, `fork`, `revert`, `restore`, `compact`, `delete`) works
+against the same server. Tokens may also come from `RECODE_SERVER_TOKEN`.
 
 ### Language servers and MCP
 

@@ -84,6 +84,10 @@ pub struct App {
     pub question_state: Option<QuestionProgress>,
     pub completion: Option<Completion>,
     file_cache: Vec<String>,
+    /// Sequence number of the transcript the UI last rendered. In attach mode
+    /// the backend owns the transcript, so the UI follows its sequence
+    /// number instead of applying events itself.
+    transcript_seq: u64,
 }
 
 impl App {
@@ -97,6 +101,7 @@ impl App {
         } else {
             SessionStatus::Idle
         };
+        let transcript_seq = backend.transcript_seq();
         Ok(Self {
             backend,
             session,
@@ -119,16 +124,31 @@ impl App {
             question_state: None,
             completion: None,
             file_cache: Vec::new(),
+            transcript_seq,
         })
     }
 
     pub fn reload(&mut self) {
+        // Read the sequence number before the transcript: an event that lands
+        // in between then only costs one extra reload, while the other order
+        // could mark a stale transcript as current.
+        let seq = self.backend.transcript_seq();
         match self.backend.messages(&self.session.id) {
             Ok(messages) => self.messages = messages,
             Err(error) => self.set_notice(error),
         }
         if let Some(session) = self.backend.session(&self.session.id) {
             self.session = session;
+        }
+        self.transcript_seq = seq;
+    }
+
+    /// Reload only when the backend's transcript moved on. Attach mode folds
+    /// server events into the backend's copy, so the UI follows its sequence
+    /// number instead of re-rendering on every event.
+    fn reload_if_changed(&mut self) {
+        if self.backend.transcript_seq() != self.transcript_seq {
+            self.reload();
         }
     }
 
@@ -273,6 +293,10 @@ impl App {
     }
 
     pub fn on_live(&mut self, event: LiveEvent) {
+        if self.backend.is_remote() {
+            self.on_live_remote(event);
+            return;
+        }
         match event {
             LiveEvent::Delta {
                 session_id,
@@ -354,6 +378,45 @@ impl App {
                 }
             }
             LiveEvent::QuestionReplied { .. } => {}
+            _ => {}
+        }
+    }
+
+    /// Attach mode: the backend folds the server's durable events into its
+    /// copy of the transcript, so the UI follows that copy instead of
+    /// applying events itself. The immediate streaming deltas are skipped —
+    /// the durable copy of the same text follows within a batch interval.
+    fn on_live_remote(&mut self, event: LiveEvent) {
+        match &event {
+            LiveEvent::Delta { .. } => {}
+            LiveEvent::Durable(envelope) => {
+                if envelope.session_id != self.session.id {
+                    return;
+                }
+                match &envelope.event {
+                    Event::SessionUpdated { session } => self.session = session.clone(),
+                    Event::SessionDeleted { .. } => self.should_quit = true,
+                    Event::SessionError { error, .. } => {
+                        self.set_notice(error.message.clone());
+                    }
+                    _ => self.reload_if_changed(),
+                }
+            }
+            LiveEvent::SessionStatus { session_id, status } if *session_id == self.session.id => {
+                self.status = *status;
+            }
+            LiveEvent::QuestionAsked(request) => {
+                if !self
+                    .pending_questions
+                    .iter()
+                    .any(|pending| pending.id == request.id)
+                {
+                    self.pending_questions.push(request.clone());
+                }
+                if self.question_state.is_none() {
+                    self.activate_question();
+                }
+            }
             _ => {}
         }
     }

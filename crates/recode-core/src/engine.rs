@@ -368,14 +368,27 @@ impl Engine {
     }
 
     pub fn messages(&self, session_id: &SessionId) -> Result<Vec<Message>, String> {
-        let stored: Vec<StoredMessage> = self
+        Ok(self.messages_with_seq(session_id)?.0)
+    }
+
+    /// The transcript of a session plus the sequence number of the last event
+    /// that produced it.
+    ///
+    /// A client that applies live events after `seq` ends up with exactly the
+    /// transcript the store holds, which is what attach mode needs to avoid
+    /// showing the same text twice.
+    pub fn messages_with_seq(&self, session_id: &SessionId) -> Result<(Vec<Message>, u64), String> {
+        let (stored, seq): (Vec<StoredMessage>, u64) = self
             .store
-            .messages(session_id, 10_000)
+            .messages_with_seq(session_id, 10_000)
             .map_err(|error| error.to_string())?;
-        Ok(stored
-            .into_iter()
-            .map(StoredMessage::into_message)
-            .collect())
+        Ok((
+            stored
+                .into_iter()
+                .map(StoredMessage::into_message)
+                .collect(),
+            seq,
+        ))
     }
 
     /// Snapshot attached to the most recent user prompt, if any.

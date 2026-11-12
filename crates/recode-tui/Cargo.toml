@@ -26,4 +26,6 @@ tracing = { workspace = true }
 unicode-width = { workspace = true }
 
 [dev-dependencies]
+recode-server = { workspace = true }
 tempfile = { workspace = true }
+tokio = { workspace = true }

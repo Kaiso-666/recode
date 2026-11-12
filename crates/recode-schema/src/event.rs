@@ -170,7 +170,7 @@ pub struct EventEnvelope {
 /// superset of durable events with volatile signals such as streaming deltas
 /// and permission requests kept out of the store where noted.
 #[allow(clippy::large_enum_variant)]
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum LiveEvent {
     Durable(EventEnvelope),
     /// The session runner changed state without a durable event.
@@ -203,10 +203,249 @@ pub enum LiveEvent {
     },
 }
 
+impl LiveEvent {
+    /// Apply this event to a transcript in place.
+    ///
+    /// Returns `false` when the event cannot be applied — a delta for a part
+    /// the transcript does not have yet, for example — so the caller can
+    /// reload the transcript from the store instead of guessing.
+    pub fn apply(&self, messages: &mut Vec<crate::message::Message>) -> bool {
+        match self {
+            LiveEvent::Delta {
+                message_id,
+                part_id,
+                kind,
+                delta,
+                ..
+            } => append_delta(messages, message_id, part_id, kind, delta),
+            LiveEvent::Durable(envelope) => match &envelope.event {
+                Event::PartDelta {
+                    message_id,
+                    part_id,
+                    kind,
+                    delta,
+                    ..
+                } => append_delta(messages, message_id, part_id, kind, delta),
+                Event::MessageAdded { message } => {
+                    if messages.iter().any(|item| item.info.id == message.id) {
+                        return true;
+                    }
+                    messages.push(crate::message::Message::new(message.clone()));
+                    true
+                }
+                Event::MessageRemoved { message_id, .. } => {
+                    messages.retain(|item| item.info.id != *message_id);
+                    true
+                }
+                Event::PartAdded {
+                    message_id, part, ..
+                } => {
+                    let Some(message) =
+                        messages.iter_mut().find(|item| item.info.id == *message_id)
+                    else {
+                        return false;
+                    };
+                    if message
+                        .parts
+                        .iter()
+                        .any(|existing| existing.id() == part.id())
+                    {
+                        return true;
+                    }
+                    message.parts.push(part.clone());
+                    true
+                }
+                Event::PartUpdated {
+                    message_id, part, ..
+                } => {
+                    let Some(message) =
+                        messages.iter_mut().find(|item| item.info.id == *message_id)
+                    else {
+                        return false;
+                    };
+                    match message
+                        .parts
+                        .iter_mut()
+                        .find(|existing| existing.id() == part.id())
+                    {
+                        Some(existing) => *existing = part.clone(),
+                        None => message.parts.push(part.clone()),
+                    }
+                    true
+                }
+                Event::PartRemoved {
+                    message_id,
+                    part_id,
+                    ..
+                } => {
+                    let Some(message) =
+                        messages.iter_mut().find(|item| item.info.id == *message_id)
+                    else {
+                        return false;
+                    };
+                    message.parts.retain(|existing| existing.id() != part_id);
+                    true
+                }
+                _ => false,
+            },
+            _ => false,
+        }
+    }
+}
+
+/// Append streamed text to the matching part of a transcript.
+fn append_delta(
+    messages: &mut [crate::message::Message],
+    message_id: &MessageId,
+    part_id: &PartId,
+    kind: &DeltaKind,
+    delta: &str,
+) -> bool {
+    let Some(message) = messages
+        .iter_mut()
+        .find(|message| message.info.id == *message_id)
+    else {
+        return false;
+    };
+    let Some(part) = message.parts.iter_mut().find(|part| part.id() == part_id) else {
+        return false;
+    };
+    match kind {
+        DeltaKind::Text => match part.text_mut() {
+            Some(text) => {
+                text.text.push_str(delta);
+                true
+            }
+            None => false,
+        },
+        DeltaKind::Reasoning => match part.reasoning_mut() {
+            Some(reasoning) => {
+                reasoning.text.push_str(delta);
+                true
+            }
+            None => false,
+        },
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum SessionStatus {
     Idle,
     Busy,
     Retry,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::id::EventId;
+    use crate::message::MessageInfo;
+    use crate::part::TextPart;
+    use crate::Role;
+
+    fn transcript() -> (Vec<crate::message::Message>, MessageId, PartId, SessionId) {
+        let session_id = SessionId::new();
+        let message_id = MessageId::new();
+        let part_id = PartId::new();
+        let mut info = MessageInfo::user(session_id.clone());
+        info.id = message_id.clone();
+        info.role = Role::Assistant;
+        let message = crate::message::Message {
+            info,
+            parts: vec![Part::Text(TextPart {
+                id: part_id.clone(),
+                text: "Hello".into(),
+                synthetic: false,
+                time: None,
+            })],
+        };
+        (vec![message], message_id, part_id, session_id)
+    }
+
+    fn text_of(messages: &[crate::message::Message]) -> String {
+        messages[0]
+            .parts
+            .iter()
+            .filter_map(|part| match part {
+                Part::Text(text) => Some(text.text.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn applies_live_and_durable_deltas() {
+        let (mut messages, message_id, part_id, session_id) = transcript();
+
+        let live = LiveEvent::Delta {
+            session_id: session_id.clone(),
+            message_id: message_id.clone(),
+            part_id: part_id.clone(),
+            kind: DeltaKind::Text,
+            delta: " world".into(),
+        };
+        assert!(live.apply(&mut messages));
+        assert_eq!(text_of(&messages), "Hello world");
+
+        let durable = LiveEvent::Durable(EventEnvelope {
+            id: EventId::new(),
+            session_id: session_id.clone(),
+            seq: 1,
+            created_at: 0,
+            event: Event::PartDelta {
+                session_id,
+                message_id: message_id.clone(),
+                part_id: part_id.clone(),
+                kind: DeltaKind::Text,
+                delta: "!".into(),
+            },
+        });
+        assert!(durable.apply(&mut messages));
+        assert_eq!(text_of(&messages), "Hello world!");
+    }
+
+    #[test]
+    fn applies_durable_parts() {
+        let (mut messages, message_id, _part_id, session_id) = transcript();
+        let part_id = PartId::new();
+        let durable = LiveEvent::Durable(EventEnvelope {
+            id: EventId::new(),
+            session_id: session_id.clone(),
+            seq: 2,
+            created_at: 0,
+            event: Event::PartAdded {
+                session_id,
+                message_id,
+                part: Part::Text(TextPart {
+                    id: part_id,
+                    text: "second".into(),
+                    synthetic: false,
+                    time: None,
+                }),
+            },
+        });
+        assert!(durable.apply(&mut messages));
+        assert_eq!(messages[0].parts.len(), 2);
+    }
+
+    #[test]
+    fn refuses_events_for_unknown_messages() {
+        let (mut messages, _message_id, _part_id, _session_id) = transcript();
+        let durable = LiveEvent::Durable(EventEnvelope {
+            id: EventId::new(),
+            session_id: SessionId::new(),
+            seq: 3,
+            created_at: 0,
+            event: Event::PartDelta {
+                session_id: SessionId::new(),
+                message_id: MessageId::new(),
+                part_id: PartId::new(),
+                kind: DeltaKind::Text,
+                delta: "ignored".into(),
+            },
+        });
+        assert!(!durable.apply(&mut messages));
+        assert_eq!(text_of(&messages), "Hello");
+    }
 }

@@ -5,7 +5,7 @@
 //! own) so a TUI can poll a cached snapshot at its own pace and headless
 //! commands can make one call and exit.
 
-use recode_schema::event::SessionInfo;
+use recode_schema::event::{LiveEvent, SessionInfo};
 use recode_schema::message::Message;
 use recode_schema::permission::{PermissionReply, PermissionRequest};
 use recode_schema::question::{QuestionReply, QuestionRequest};
@@ -93,6 +93,9 @@ struct SessionsResponse {
 #[derive(Clone, Debug, Deserialize)]
 struct MessagesResponse {
     messages: Vec<Message>,
+    /// Sequence number of the last event that produced `messages`.
+    #[serde(default, rename = "lastSeq")]
+    last_seq: u64,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -142,11 +145,26 @@ struct AbortResponse {
     aborted: bool,
 }
 
+/// A live event stream from the server's SSE endpoint.
+pub struct EventStream {
+    receiver: tokio::sync::mpsc::Receiver<Result<LiveEvent, String>>,
+}
+
+impl EventStream {
+    /// The next event, or `None` once the stream ended.
+    pub async fn next(&mut self) -> Option<Result<LiveEvent, String>> {
+        self.receiver.recv().await
+    }
+}
+
 #[derive(Clone)]
 pub struct Client {
     base: String,
     token: Option<String>,
     http: reqwest::Client,
+    /// Separate client for server-sent events: the shared one has a request
+    /// timeout, which would cut a long-lived stream short.
+    stream: reqwest::Client,
 }
 
 impl Client {
@@ -159,7 +177,13 @@ impl Client {
             .timeout(Duration::from_secs(60))
             .build()
             .unwrap_or_default();
-        Self { base, token, http }
+        let stream = reqwest::Client::builder().build().unwrap_or_default();
+        Self {
+            base,
+            token,
+            http,
+            stream,
+        }
     }
 
     pub fn base(&self) -> &str {
@@ -191,6 +215,52 @@ impl Client {
     pub async fn agents(&self) -> Result<Vec<AgentSummary>, String> {
         let response: AgentsResponse = self.get("/api/agents").await?;
         Ok(response.agents)
+    }
+
+    /// Subscribe to a session's live events over server-sent events.
+    ///
+    /// The stream stays open until the server closes it or the connection
+    /// breaks; the caller reads [`EventStream::next`] until it returns `None`.
+    pub async fn events(&self, session: &str) -> Result<EventStream, String> {
+        let mut response = self
+            .stream
+            .get(format!("{}/api/sessions/{session}/events", self.base))
+            .headers(self.headers()?)
+            .send()
+            .await
+            .map_err(|error| format!("cannot open the event stream: {error}"))?;
+        if !response.status().is_success() {
+            return Err(format!("event stream returned HTTP {}", response.status()));
+        }
+        let (sender, receiver) = tokio::sync::mpsc::channel(256);
+        tokio::spawn(async move {
+            let mut buffer = String::new();
+            loop {
+                let chunk = match response.chunk().await {
+                    Ok(Some(chunk)) => chunk,
+                    Ok(None) => break,
+                    Err(error) => {
+                        let _ = sender.send(Err(error.to_string())).await;
+                        return;
+                    }
+                };
+                buffer.push_str(&String::from_utf8_lossy(&chunk).replace("\r\n", "\n"));
+                while let Some(end) = buffer.find("\n\n") {
+                    let block: String = buffer.drain(..end + 2).collect();
+                    let Some(data) = sse_data(&block) else {
+                        continue;
+                    };
+                    let event = match serde_json::from_str::<LiveEvent>(&data) {
+                        Ok(event) => Ok(event),
+                        Err(error) => Err(format!("invalid server event: {error}")),
+                    };
+                    if sender.send(event).await.is_err() {
+                        return;
+                    }
+                }
+            }
+        });
+        Ok(EventStream { receiver })
     }
 
     pub async fn commands(&self) -> Result<Vec<CommandSummary>, String> {
@@ -276,6 +346,13 @@ impl Client {
     pub async fn messages(&self, id: &str) -> Result<Vec<Message>, String> {
         let response: MessagesResponse = self.get(&format!("/api/sessions/{id}/messages")).await?;
         Ok(response.messages)
+    }
+
+    /// The transcript of a session plus the sequence number of the last event
+    /// that produced it. Live events after that number fill the gap.
+    pub async fn messages_with_seq(&self, id: &str) -> Result<(Vec<Message>, u64), String> {
+        let response: MessagesResponse = self.get(&format!("/api/sessions/{id}/messages")).await?;
+        Ok((response.messages, response.last_seq))
     }
 
     pub async fn prompt(&self, id: &str, text: &str) -> Result<(), String> {
@@ -466,6 +543,21 @@ fn encode_segment(value: &str) -> String {
     output
 }
 
+/// The `data:` payload of one server-sent event block. Comment lines (the
+/// server's keep-alives) and blocks without data are ignored.
+fn sse_data(block: &str) -> Option<String> {
+    let mut data = String::new();
+    for line in block.lines() {
+        if let Some(value) = line.strip_prefix("data:") {
+            if !data.is_empty() {
+                data.push('\n');
+            }
+            data.push_str(value.trim_start());
+        }
+    }
+    (!data.is_empty()).then_some(data)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -475,5 +567,16 @@ mod tests {
         assert_eq!(encode_segment("review"), "review");
         assert_eq!(encode_segment("review/security"), "review%2Fsecurity");
         assert_eq!(encode_segment("a b"), "a%20b");
+    }
+
+    #[test]
+    fn reads_the_data_payload_of_an_event_block() {
+        assert_eq!(
+            sse_data("event: recode\ndata: {\"value\":1}\n\n").as_deref(),
+            Some("{\"value\":1}")
+        );
+        // Keep-alive comments carry no payload.
+        assert_eq!(sse_data(": keep-alive\n\n"), None);
+        assert_eq!(sse_data("event: recode\n\n"), None);
     }
 }

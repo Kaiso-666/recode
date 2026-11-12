@@ -75,5 +75,9 @@ Each milestone ends with a green `cargo test` and a usable binary. No milestone 
 - [x] models.dev catalog: `recode models --refresh`, compact cache, provider/model routing,
   context limits and costs. Only the OpenAI-compatible and Anthropic protocols are imported.
 - [x] OpenCode Console device OAuth for paid Zen models, with token refresh.
+- [x] Attach mode over the server's event stream: the TUI folds durable events into its
+  copy of the transcript, `lastSeq` marks what a snapshot already contains.
+- [x] Markdown agents and slash commands, server-side command expansion, remote session
+  commands (`recode sessions --server`).
 - [ ] Diff the CLI/config/TUI surface against the upstream fork and close gaps.
 - **Exit:** an opencode user can move their config and habits over without surprises.

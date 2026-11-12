@@ -8,7 +8,7 @@ Last updated: 2026-11-09 (verified release build + benchmark)
 OpenCode Zen free tier, models.dev, Console OAuth, and markdown agents/commands.
 
 ```
-cargo test --workspace       120 passed, 0 failed
+cargo test --workspace       126 passed, 0 failed
 cargo clippy --workspace --all-targets -- -D warnings   clean
 cargo fmt --all --check       clean
 cargo build --release --locked --bin recode             verified (20m07s, jobs=1)
@@ -100,6 +100,12 @@ binary                       18.0 MiB
 - Task agents: the `task` schema enum is injected from `AgentRegistry::all()` at engine
   startup, so custom markdown agents can be delegated to instead of the old hardcoded
   `general`/`explore` pair (unit tests).
+- Event stream: the attached TUI follows `GET /api/sessions/{id}/events` and folds the
+  durable events into its copy of the transcript; `GET /api/sessions/{id}/messages` returns
+  `lastSeq` so the client knows which events its snapshot already contains. Proven by
+  `script/attach_smoke.ps1`: with the poll's transcript refetch disabled, the attached TUI
+  still renders the reply, so the stream is the source. The integration test in
+  `crates/recode-tui/tests/attach.rs` covers the same path in-process.
 - Release benchmark: `script/bench.ps1 -Runs 20` on the release binary measured startup at
   mean 39.1 ms / p50 38.6 ms / p95 46.7 ms and an 18.0 MiB executable; the release build
   took 20m07s with `CARGO_BUILD_JOBS=1`. The release binary also passed the markdown
@@ -115,7 +121,7 @@ binary                       18.0 MiB
 - TUI session search: F4 opens the session picker and typing filters by title or id
   (`Ctrl+U` clears); verified in the ConPTY smoke test (`--search`).
 - Attach mode: `recode tui --server URL --token T` runs the same TUI against
-  `recode serve`. The client loads a snapshot, polls the API while busy, and answers
+  `recode serve`. The client loads a snapshot, follows the server's event stream, and answers
   permission/question requests through the HTTP brokers. Verified in ConPTY for a normal
   prompt, a `write` behind an `ask` rule (y → tool runs), and a `question` (Enter → answer
   returned to the model). `recode run --server URL --auto "…"` streams the assistant text
@@ -156,8 +162,7 @@ binary                       18.0 MiB
 1. M9 parity: diff the CLI/config/TUI surface against the upstream fork and close gaps
    (themes/keybinds, share, subagent commands).
 2. Wire the benchmark into CI and track regressions.
-3. TUI attach over SSE (replace 4–20 Hz polling).
-4. Signed release binaries and parser fuzz tests.
+3. Signed release binaries and parser fuzz tests.
 
 ## Known issues / gotchas
 
@@ -180,6 +185,10 @@ binary                       18.0 MiB
   session rule.
 - **Streaming:** deltas broadcast immediately but persist in 2 KB / 60 ms batches as
   `PartDelta`; clients reload from the event log on durable events and on idle.
+- **Every persisted event is broadcast.** The runner used to persist the assistant's
+  `MessageAdded` and the batched `PartDelta` without announcing them, so a client that
+  follows the durable stream never saw the assistant's message or its text. Both are
+  broadcast now; keep new `store.append` calls paired with a `bus.send`.
 - **Casing:** event JSON currently mixes camelCase (inner structs) with snake_case (variant
   fields). Harmless internally; normalize before publishing a wire protocol.
 - **OAuth credentials:** `auth.json` entries may be `{type:"api",key}` or
@@ -227,10 +236,16 @@ binary                       18.0 MiB
   commands time out after 15 s. Missing binaries are remembered for the process.
   Formatting runs before LSP diagnostics, so diagnostics reflect the formatted file.
 - **Attach mode:** `recode tui --server …` (the `tui` subcommand is required; top-level
-  flags are not global). The client polls; while busy it refreshes every ~320 ms, when
-  idle every ~1.6 s. Polling replaces the rendered transcript from the server, so remote
-  streaming is chunky but durable events are never lost. Server-side permissions/questions
-  appear as normal modals and replies go through `POST /api/permissions|questions/{id}`.
+  flags are not global). The client subscribes to `GET /api/sessions/{id}/events`
+  (server-sent events) and folds the durable events into its copy of the transcript;
+  the immediate streaming deltas are skipped because the durable copy of the same text
+  follows within the 60 ms batch interval. The transcript is only refetched when the run
+  is over, when the stream is down, or when an event could not be folded in, so the
+  poll (every ~320 ms while busy, ~1.6 s while idle) no longer competes with the stream.
+  `GET /api/sessions/{id}/messages` returns `lastSeq` next to the messages: the sequence
+  number of the last event that produced them, which is how the client knows which
+  events its snapshot already contains. Server-side permissions/questions appear as
+  normal modals and replies go through `POST /api/permissions|questions/{id}`.
   `@file` completion uses `GET /api/files`; submitting expands files with
   `GET /api/files/content`, so the TUI can run on a different machine. `/` completion
   fetches `GET /api/commands`, and entering one expands it through

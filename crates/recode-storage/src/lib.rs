@@ -347,7 +347,26 @@ impl Store {
     // ---- messages -------------------------------------------------------
 
     pub fn messages(&self, session_id: &SessionId, limit: u32) -> Result<Vec<StoredMessage>> {
+        Ok(self.messages_with_seq(session_id, limit)?.0)
+    }
+
+    /// The messages of a session together with the sequence number of the
+    /// last event that produced them.
+    ///
+    /// Both are read under the same lock, so the pair is consistent: a client
+    /// that applies events after `seq` to this transcript ends up with the
+    /// same text the store holds.
+    pub fn messages_with_seq(
+        &self,
+        session_id: &SessionId,
+        limit: u32,
+    ) -> Result<(Vec<StoredMessage>, u64)> {
         let conn = self.conn.lock();
+        let seq: u64 = conn.query_row(
+            "SELECT COALESCE(MAX(seq), 0) FROM event WHERE session_id = ?1",
+            params![session_id.0],
+            |row| row.get(0),
+        )?;
         let mut stmt = conn.prepare(
             "SELECT id, role, created_at, agent, model, parent_id, error, metadata
              FROM message WHERE session_id = ?1 ORDER BY seq ASC LIMIT ?2",
@@ -392,7 +411,7 @@ impl Store {
             let parts = self.parts_for_message_locked(&conn, &info.id)?;
             messages.push(StoredMessage { info, parts });
         }
-        Ok(messages)
+        Ok((messages, seq))
     }
 
     pub fn message(&self, message_id: &recode_schema::MessageId) -> Result<Option<StoredMessage>> {

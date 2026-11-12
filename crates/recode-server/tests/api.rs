@@ -4,9 +4,11 @@ use recode_client::Client;
 use recode_core::engine::Engine;
 use recode_core::permission::AutoApprove;
 use recode_core::EngineOptions;
+use recode_schema::event::LiveEvent;
 use recode_server::Server;
 use std::path::Path;
 use std::sync::Arc;
+use std::time::Duration;
 
 fn engine(directory: &Path, config_dir: &Path) -> Arc<Engine> {
     std::fs::create_dir_all(directory.join("project")).unwrap();
@@ -95,4 +97,50 @@ async fn commands_and_agents_are_listed() {
     assert_eq!(commands[0].name, "review");
     let agents = client.agents().await.expect("agents");
     assert!(agents.iter().any(|agent| agent.id == "build"));
+}
+
+#[tokio::test]
+async fn the_event_stream_delivers_session_events() {
+    let dir = tempfile::tempdir().unwrap();
+    let config_dir = dir.path().join("config");
+    std::fs::create_dir_all(&config_dir).unwrap();
+    std::fs::write(
+        config_dir.join("recode.json"),
+        r#"{"model":"acme/acme-chat"}"#,
+    )
+    .unwrap();
+    let engine = engine(dir.path(), &config_dir);
+    let client = start(engine.clone()).await;
+
+    let session = client
+        .create_session(None, None, None)
+        .await
+        .expect("create");
+    let mut stream = client.events(&session.id.0).await.expect("events");
+    engine
+        .prompt(&session.id, "hello".into(), Vec::new())
+        .await
+        .expect("prompt");
+
+    let event = tokio::time::timeout(Duration::from_secs(5), stream.next())
+        .await
+        .expect("event timeout")
+        .expect("stream ended")
+        .expect("event error");
+    match event {
+        LiveEvent::Durable(envelope) => {
+            assert_eq!(envelope.session_id, session.id);
+            assert!(envelope.seq >= 1);
+        }
+        other => panic!("unexpected event {other:?}"),
+    }
+
+    // The transcript carries the sequence number of its last event, so a
+    // client can tell which events are already included.
+    let (messages, last_seq) = client
+        .messages_with_seq(&session.id.0)
+        .await
+        .expect("messages");
+    assert_eq!(messages.len(), 1);
+    assert!(last_seq >= 1);
 }

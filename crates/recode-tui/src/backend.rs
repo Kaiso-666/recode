@@ -11,11 +11,12 @@ use recode_client::Client;
 use recode_core::command::Expansion;
 use recode_core::config::ProviderSummary;
 use recode_core::engine::Engine;
-use recode_schema::event::SessionInfo;
+use recode_schema::event::{LiveEvent, SessionInfo, SessionStatus};
 use recode_schema::message::Message;
 use recode_schema::permission::{PermissionReply, PermissionRequest};
 use recode_schema::question::{QuestionReply, QuestionRequest};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -47,14 +48,73 @@ struct RemoteCache {
     commands: Vec<CommandView>,
     files: Vec<String>,
     busy: bool,
+    /// Sequence number of the last event folded into `messages`.
+    last_seq: u64,
+    /// A live event could not be folded in; the transcript must be refetched.
+    stale: bool,
 }
 
 struct Remote {
     client: Client,
     cache: RwLock<RemoteCache>,
-    /// Deltas are delivered by polling; this sender keeps a dummy broadcast
-    /// receiver alive so the TUI event loop has one uniform shape.
-    _bus: tokio::sync::broadcast::Sender<recode_schema::event::LiveEvent>,
+    /// Live events from the server's event stream.
+    bus: tokio::sync::broadcast::Sender<recode_schema::event::LiveEvent>,
+    /// Whether the event stream is currently connected.
+    connected: Arc<AtomicBool>,
+    /// Bumped when the visible session changes; readers of an older session
+    /// stop when they see a newer generation.
+    generation: Arc<AtomicU64>,
+}
+
+/// Fold the server's live events into the cached transcript and forward them
+/// to the TUI.
+fn spawn_event_reader(
+    remote: Arc<Remote>,
+    mut stream: recode_client::EventStream,
+    session_id: String,
+    generation: u64,
+) {
+    tokio::spawn(async move {
+        while let Some(item) = stream.next().await {
+            if remote.generation.load(Ordering::Acquire) != generation {
+                return;
+            }
+            let event = match item {
+                Ok(event) => event,
+                Err(error) => {
+                    tracing::debug!(%error, "server event stream failed");
+                    break;
+                }
+            };
+            {
+                let mut cache = remote.cache.write().unwrap();
+                // The visible session may have changed while we waited for
+                // the lock; the reader of the old session stops here.
+                if remote.generation.load(Ordering::Acquire) != generation {
+                    return;
+                }
+                match &event {
+                    LiveEvent::Durable(envelope) => {
+                        if envelope.session_id.0 == session_id && envelope.seq > cache.last_seq {
+                            cache.last_seq = envelope.seq;
+                            if !event.apply(&mut cache.messages) {
+                                // The event does not fit the transcript we
+                                // hold; the next poll refetches it.
+                                cache.stale = true;
+                            }
+                        }
+                    }
+                    LiveEvent::SessionStatus { status, .. } => {
+                        cache.busy = *status == SessionStatus::Busy;
+                    }
+                    _ => {}
+                }
+            }
+            let _ = remote.bus.send(event);
+        }
+        remote.connected.store(false, Ordering::Release);
+        tracing::debug!("server event stream closed");
+    });
 }
 
 #[derive(Clone)]
@@ -78,14 +138,24 @@ impl Backend {
     /// the terminal is touched, so a bad URL leaves a usable shell.
     pub async fn remote(client: Client, session_id: &str) -> Result<Self, String> {
         client.health().await?;
+        // Subscribe before reading the snapshot: events that arrive while the
+        // snapshot is fetched are buffered by the stream, and the sequence
+        // number of the snapshot tells us which of them are already included.
+        let mut stream = match client.events(session_id).await {
+            Ok(stream) => Some(stream),
+            Err(error) => {
+                tracing::debug!(%error, "cannot subscribe to server events");
+                None
+            }
+        };
         let snapshot = client.session(session_id).await?;
-        let messages = client.messages(session_id).await?;
+        let (messages, last_seq) = client.messages_with_seq(session_id).await?;
         let sessions = client.sessions(true, true).await.unwrap_or_default();
         let providers = client.providers().await.unwrap_or_default();
         let agents = client.agents().await.unwrap_or_default();
         let commands = client.commands().await.unwrap_or_default();
         let files = client.files().await.unwrap_or_default();
-        let (bus, _) = tokio::sync::broadcast::channel(16);
+        let (bus, _) = tokio::sync::broadcast::channel(256);
         let cache = RemoteCache {
             session: snapshot.session,
             messages,
@@ -116,14 +186,23 @@ impl Backend {
                 .collect(),
             files,
             busy: snapshot.busy,
+            last_seq,
+            stale: false,
         };
+        let connected = Arc::new(AtomicBool::new(stream.is_some()));
+        let remote = Arc::new(Remote {
+            client,
+            cache: RwLock::new(cache),
+            bus: bus.clone(),
+            connected: connected.clone(),
+            generation: Arc::new(AtomicU64::new(0)),
+        });
+        if let Some(stream) = stream.take() {
+            spawn_event_reader(remote.clone(), stream, session_id.to_owned(), 0);
+        }
         Ok(Self {
             local: None,
-            remote: Some(Arc::new(Remote {
-                client,
-                cache: RwLock::new(cache),
-                _bus: bus.clone(),
-            })),
+            remote: Some(remote),
             bus,
         })
     }
@@ -134,6 +213,16 @@ impl Backend {
 
     pub fn is_remote(&self) -> bool {
         self.remote.is_some()
+    }
+
+    /// The sequence number of the transcript the backend currently holds.
+    /// Local mode has no sequence numbers; the counter stays at zero.
+    pub fn transcript_seq(&self) -> u64 {
+        match (&self.local, &self.remote) {
+            (Some(_), _) => 0,
+            (_, Some(remote)) => remote.cache.read().unwrap().last_seq,
+            _ => 0,
+        }
     }
 
     pub fn root(&self) -> PathBuf {
@@ -305,7 +394,6 @@ impl Backend {
             return Ok(Poll::default());
         };
         let snapshot = remote.client.session(&id.0).await?;
-        let messages = remote.client.messages(&id.0).await?;
         let permissions = remote
             .client
             .pending_permissions(&id.0)
@@ -316,10 +404,22 @@ impl Backend {
             .pending_questions(&id.0)
             .await
             .unwrap_or_default();
-        {
+        // While the event stream is connected the transcript is kept current
+        // by the events themselves; refetching would race with them. The
+        // transcript is refetched when the run is over, when the stream is
+        // down, or when an event could not be folded in.
+        let connected = remote.connected.load(Ordering::Acquire);
+        let stale = remote.cache.read().unwrap().stale;
+        if !snapshot.busy || !connected || stale {
+            let (messages, last_seq) = remote.client.messages_with_seq(&id.0).await?;
             let mut cache = remote.cache.write().unwrap();
+            // Never replace a transcript that already includes newer events.
+            if last_seq >= cache.last_seq {
+                cache.messages = messages;
+                cache.last_seq = last_seq;
+                cache.stale = false;
+            }
             cache.session = snapshot.session;
-            cache.messages = messages;
             cache.busy = snapshot.busy;
         }
         Ok(Poll {
@@ -335,13 +435,23 @@ impl Backend {
                 .session(id)?
                 .ok_or_else(|| "session not found".to_owned()),
             (_, Some(remote)) => {
+                // Subscribe before the snapshot so no event is missed, then
+                // replace the reader of the previous session.
+                let stream = remote.client.events(&id.0).await.ok();
                 let snapshot = remote.client.session(&id.0).await?;
-                let messages = remote.client.messages(&id.0).await?;
+                let (messages, last_seq) = remote.client.messages_with_seq(&id.0).await?;
+                let generation = remote.generation.fetch_add(1, Ordering::AcqRel) + 1;
                 {
                     let mut cache = remote.cache.write().unwrap();
                     cache.session = snapshot.session.clone();
                     cache.messages = messages;
                     cache.busy = snapshot.busy;
+                    cache.last_seq = last_seq;
+                    cache.stale = false;
+                }
+                remote.connected.store(stream.is_some(), Ordering::Release);
+                if let Some(stream) = stream {
+                    spawn_event_reader(remote.clone(), stream, id.0.clone(), generation);
                 }
                 Ok(snapshot.session)
             }

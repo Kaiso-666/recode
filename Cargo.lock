@@ -1427,6 +1427,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "tokio",
 ]
 
 [[package]]
@@ -1561,6 +1562,7 @@ dependencies = [
  "recode-client",
  "recode-core",
  "recode-schema",
+ "recode-server",
  "recode-tool",
  "serde",
  "serde_json",

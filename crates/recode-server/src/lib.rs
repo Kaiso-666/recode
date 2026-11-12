@@ -338,11 +338,11 @@ async fn messages(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let messages = state
+    let (messages, last_seq) = state
         .engine
-        .messages(&SessionId::from_existing(id))
+        .messages_with_seq(&SessionId::from_existing(id))
         .map_err(ApiError::bad_request)?;
-    Ok(Json(json!({"messages": messages})))
+    Ok(Json(json!({"messages": messages, "lastSeq": last_seq})))
 }
 
 #[derive(Deserialize)]

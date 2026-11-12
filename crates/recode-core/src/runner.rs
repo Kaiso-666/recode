@@ -45,10 +45,15 @@ pub async fn run(
         Err(error) => {
             tracing::warn!(session = %session_id, %error, "session run failed");
             let message_error = MessageError::new("SessionError", &error, false);
-            let _ = engine.store.append(Event::SessionError {
-                session_id: session_id.clone(),
-                error: message_error,
-            });
+            let _ = engine
+                .store
+                .append(Event::SessionError {
+                    session_id: session_id.clone(),
+                    error: message_error,
+                })
+                .map(|envelope| {
+                    let _ = engine.bus.send(LiveEvent::Durable(envelope));
+                });
             let last_assistant = engine.messages(&session_id).ok().and_then(|messages| {
                 messages
                     .into_iter()
@@ -61,11 +66,16 @@ pub async fn run(
                     message: error,
                     name: Some("SessionError".into()),
                 });
-                let _ = engine.store.append(Event::PartAdded {
-                    session_id: session_id.clone(),
-                    message_id: message.info.id,
-                    part,
-                });
+                let _ = engine
+                    .store
+                    .append(Event::PartAdded {
+                        session_id: session_id.clone(),
+                        message_id: message.info.id,
+                        part,
+                    })
+                    .map(|envelope| {
+                        let _ = engine.bus.send(LiveEvent::Durable(envelope));
+                    });
             }
         }
     }
@@ -190,12 +200,15 @@ async fn run_inner(
             }
         }
         let assistant = MessageInfo::assistant(session_id.clone(), agent_id, model.clone());
-        engine
+        let added = engine
             .store
             .append(Event::MessageAdded {
                 message: assistant.clone(),
             })
             .map_err(|error| error.to_string())?;
+        // Live subscribers need the assistant's message before its parts, so
+        // the broadcast carries the header too.
+        let _ = engine.bus.send(LiveEvent::Durable(added));
         let step_start = Part::StepStart(StepStartPart {
             id: PartId::new(),
             time: Some(PartTime::started()),
@@ -667,13 +680,20 @@ fn flush_delta(
         return;
     }
     let delta = std::mem::take(buffer);
-    let _ = engine.store.append(Event::PartDelta {
-        session_id: session_id.clone(),
-        message_id: message_id.clone(),
-        part_id: part_id.clone(),
-        kind,
-        delta,
-    });
+    let _ = engine
+        .store
+        .append(Event::PartDelta {
+            session_id: session_id.clone(),
+            message_id: message_id.clone(),
+            part_id: part_id.clone(),
+            kind,
+            delta,
+        })
+        .map(|envelope| {
+            // Live subscribers that follow the durable stream (attach mode)
+            // need the persisted batch as well.
+            let _ = engine.bus.send(LiveEvent::Durable(envelope));
+        });
 }
 
 /// Broadcast a delta immediately for smooth rendering. Persistence happens in
