@@ -319,6 +319,8 @@ pub struct Config {
     pub snapshot: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub share: Option<String>,
+    /// Name of the TUI colour theme (`recode`, `tokyonight`, `gruvbox`,
+    /// `catppuccin`, `solarized`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub theme: Option<String>,
     #[serde(default)]

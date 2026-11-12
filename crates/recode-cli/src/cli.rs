@@ -63,6 +63,9 @@ pub struct TuiArgs {
     /// Bearer token for --server (or RECODE_SERVER_TOKEN).
     #[arg(long, env = "RECODE_SERVER_TOKEN")]
     pub token: Option<String>,
+    /// Colour theme (recode, tokyonight, gruvbox, catppuccin, solarized).
+    #[arg(long)]
+    pub theme: Option<String>,
 }
 
 #[derive(Args, Default)]

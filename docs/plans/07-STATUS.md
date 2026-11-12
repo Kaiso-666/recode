@@ -8,7 +8,7 @@ Last updated: 2026-11-09 (verified release build + benchmark)
 OpenCode Zen free tier, models.dev, Console OAuth, and markdown agents/commands.
 
 ```
-cargo test --workspace       126 passed, 0 failed
+cargo test --workspace       129 passed, 0 failed
 cargo clippy --workspace --all-targets -- -D warnings   clean
 cargo fmt --all --check       clean
 cargo build --release --locked --bin recode             verified (20m07s, jobs=1)
@@ -106,6 +106,10 @@ binary                       18.0 MiB
   `script/attach_smoke.ps1`: with the poll's transcript refetch disabled, the attached TUI
   still renders the reply, so the stream is the source. The integration test in
   `crates/recode-tui/tests/attach.rs` covers the same path in-process.
+- Themes: five built-in palettes (`recode`, `tokyonight`, `gruvbox`, `catppuccin`,
+  `solarized`) selected by the config's `theme` key, by `recode tui --theme`, or by
+  `/theme <name>` while the UI is open. The TUI smoke test ran with `--theme gruvbox`;
+  unit tests cover the lookup and the config key.
 - Release benchmark: `script/bench.ps1 -Runs 20` on the release binary measured startup at
   mean 39.1 ms / p50 38.6 ms / p95 46.7 ms and an 18.0 MiB executable; the release build
   took 20m07s with `CARGO_BUILD_JOBS=1`. The release binary also passed the markdown

@@ -79,6 +79,11 @@ impl ConfigManager {
             .unwrap_or_else(|| "build".to_owned())
     }
 
+    /// The configured TUI theme name, if any.
+    pub fn theme_name(&self) -> Option<&str> {
+        self.merged.theme.as_deref()
+    }
+
     pub fn model_config(&self, model: &ModelRef) -> ModelConfig {
         if let Some(config) = self
             .merged
@@ -432,6 +437,29 @@ fn load_file(path: &Path) -> Config {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reads_the_theme_name_from_the_configuration() {
+        let dir = tempfile::tempdir().unwrap();
+        let project_root = dir.path().join("project");
+        std::fs::create_dir_all(&project_root).unwrap();
+        std::fs::write(
+            project_root.join("recode.json"),
+            r#"{ "theme": "gruvbox" }"#,
+        )
+        .unwrap();
+        let paths = RecodePaths {
+            config_dir: dir.path().join("config"),
+            data_dir: dir.path().join("data"),
+            db_path: dir.path().join("data/recode.db"),
+            auth_path: dir.path().join("config/auth.json"),
+            log_dir: dir.path().join("data/log"),
+            global_config: dir.path().join("config/recode.json"),
+        };
+        std::fs::create_dir_all(&paths.config_dir).unwrap();
+        let manager = ConfigManager::load(paths, &project_root);
+        assert_eq!(manager.theme_name(), Some("gruvbox"));
+    }
 
     #[test]
     fn project_config_overrides_global() {

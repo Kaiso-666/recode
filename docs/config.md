@@ -292,7 +292,7 @@ first prompt; a failed server is logged and skipped.
 
 ```jsonc
 {
-  "theme": "default",
+  "theme": "gruvbox",               // recode | tokyonight | gruvbox | catppuccin | solarized
   "autoupdate": false,
   "share": "manual",              // reserved; no hosted share yet
   "username": "you",
@@ -300,3 +300,9 @@ first prompt; a failed server is logged and skipped.
   "disabledProviders": ["provider-id"]
 }
 ```
+
+The theme picks the colours the terminal UI draws with; `recode` is the
+default. `recode tui --theme gruvbox` overrides the configuration for one
+run, and `/theme <name>` switches it while the UI is open (`/theme` on its
+own lists the names). An unknown name falls back to the default.
+

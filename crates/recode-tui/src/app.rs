@@ -1,5 +1,6 @@
 use crate::backend::{Backend, Poll};
 use crate::input::Input;
+use crate::theme::Theme;
 use crate::AppEvent;
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseEvent, MouseEventKind};
 use recode_schema::event::{DeltaKind, Event, LiveEvent, SessionInfo, SessionStatus};
@@ -65,6 +66,8 @@ pub struct QuestionProgress {
 pub struct App {
     pub backend: Backend,
     pub session: SessionInfo,
+    /// The colour palette the UI draws with.
+    pub theme: Theme,
     pub messages: Vec<Message>,
     pub input: Input,
     pub status: SessionStatus,
@@ -91,7 +94,11 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(backend: Backend, session_id: recode_schema::SessionId) -> Result<Self, String> {
+    pub fn new(
+        backend: Backend,
+        session_id: recode_schema::SessionId,
+        theme: Theme,
+    ) -> Result<Self, String> {
         let session = backend
             .session(&session_id)
             .ok_or_else(|| "session not found".to_owned())?;
@@ -105,6 +112,7 @@ impl App {
         Ok(Self {
             backend,
             session,
+            theme,
             messages,
             input: Input::new(),
             status,
@@ -999,6 +1007,23 @@ impl App {
                     "reasoning hidden"
                 });
             }
+            "/theme" => {
+                if argument.is_empty() {
+                    self.set_notice(format!("themes: {}", Theme::NAMES.join(", ")));
+                } else {
+                    match Theme::by_name(argument) {
+                        Some(theme) => {
+                            let name = theme.name().unwrap_or(argument).to_owned();
+                            self.theme = theme;
+                            self.set_notice(format!("theme: {name}"));
+                        }
+                        None => self.set_notice(format!(
+                            "unknown theme {argument:?}; known themes: {}",
+                            Theme::NAMES.join(", ")
+                        )),
+                    }
+                }
+            }
             "/clear" => {
                 self.input.clear();
                 self.set_notice("input cleared");
@@ -1255,6 +1280,7 @@ fn builtin_commands() -> &'static [(&'static str, &'static str)] {
         ("/compact", "summarize the conversation"),
         ("/abort", "abort the current run"),
         ("/reasoning", "toggle reasoning visibility"),
+        ("/theme", "switch the colour theme"),
         ("/clear", "clear the input"),
         ("/quit", "quit Re:Code"),
     ]

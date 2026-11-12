@@ -11,7 +11,7 @@ Status legend: `missing` · `partial` · `done` · `n/a` (explicit non-goal)
 | `ai` | `recode-provider` | partial | Canonical LLM events; anthropic/openai-compatible (Gemini via OpenAI endpoint); OpenCode Zen free tier; models.dev snapshot/routing |
 | `server` | `recode-server` | done | axum + SSE, permission/question brokers, file + model/agent + compact + command routes |
 | `cli` | `recode-cli` | done | run/tui/serve/auth/models/sessions/config; `--server` attach for run, tui, and sessions |
-| `tui` | `recode-tui` | done | local + attach modes (live event stream), `@file`, session search, modals |
+| `tui` | `recode-tui` | done | local + attach modes (live event stream), `@file`, session search, modals, themes |
 | `protocol` | `recode-server` | partial | Reimplemented public HTTP surface, not exact |
 | `client` | `recode-client` | done | Typed HTTP client used by TUI/CLI attach; no codegen |
 | `sdk` | n/a | n/a | No JS SDK in v1 |

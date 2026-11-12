@@ -4,6 +4,7 @@ use recode_core::engine::Engine;
 use recode_core::EngineOptions;
 use recode_schema::SessionId;
 use recode_tui::Backend;
+use recode_tui::Theme;
 use std::sync::Arc;
 
 pub async fn run(args: TuiArgs) -> anyhow::Result<()> {
@@ -21,6 +22,7 @@ pub async fn run(args: TuiArgs) -> anyhow::Result<()> {
         question_responder: None,
     })
     .map_err(anyhow::Error::msg)?;
+    let theme = resolve_theme(args.theme.as_deref(), engine.config.theme_name());
     let session = match &args.session {
         Some(id) => engine
             .session(&SessionId::from_existing(id.clone()))
@@ -40,7 +42,7 @@ pub async fn run(args: TuiArgs) -> anyhow::Result<()> {
             .map_err(anyhow::Error::msg)?;
     }
     let session_id = session.id.clone();
-    recode_tui::run(Backend::local(engine), Some(responder), session_id).await?;
+    recode_tui::run(Backend::local(engine), Some(responder), session_id, theme).await?;
     Ok(())
 }
 
@@ -59,9 +61,34 @@ async fn attach(server: String, args: TuiArgs) -> anyhow::Result<()> {
             session.id
         }
     };
+    // The theme is a client-side setting, so it comes from the local config.
+    let directory = crate::cmd::directory(args.directory.clone())?;
+    let configured = recode_core::config::ConfigManager::load(crate::cmd::paths(), &directory)
+        .theme_name()
+        .map(str::to_owned);
+    let theme = resolve_theme(args.theme.as_deref().or(configured.as_deref()), None);
     let backend = Backend::remote(client, &session_id.0)
         .await
         .map_err(anyhow::Error::msg)?;
-    recode_tui::run(backend, None, session_id).await?;
+    recode_tui::run(backend, None, session_id, theme).await?;
     Ok(())
+}
+
+/// The theme to draw with. The command line wins over the configuration; an
+/// unknown name falls back to the default and says so.
+fn resolve_theme(override_name: Option<&str>, configured: Option<&str>) -> Theme {
+    let name = override_name.or(configured);
+    let Some(name) = name else {
+        return Theme::default();
+    };
+    match Theme::by_name(name) {
+        Some(theme) => theme,
+        None => {
+            eprintln!(
+                "unknown theme {name:?}; using the default. Known themes: {}",
+                Theme::NAMES.join(", ")
+            );
+            Theme::default()
+        }
+    }
 }

@@ -8,10 +8,12 @@
 pub mod app;
 pub mod backend;
 pub mod input;
+pub mod theme;
 pub mod ui;
 
 pub use app::{App, Overlay};
 pub use backend::{AgentView, Backend};
+pub use theme::Theme;
 
 use async_trait::async_trait;
 use crossterm::event::{
@@ -80,6 +82,7 @@ pub async fn run(
     backend: Backend,
     responder: Option<Arc<TuiResponder>>,
     session_id: recode_schema::SessionId,
+    theme: Theme,
 ) -> anyhow::Result<()> {
     let (keep_tx, keep_rx) = mpsc::unbounded_channel();
     let mut app_events = match responder.and_then(|responder| responder.take_receiver()) {
@@ -89,7 +92,7 @@ pub async fn run(
     // `keep_tx` keeps the fallback channel open for the lifetime of the loop.
     let _keep_tx = keep_tx;
     let mut bus = backend.subscribe();
-    let mut app = App::new(backend, session_id).map_err(anyhow::Error::msg)?;
+    let mut app = App::new(backend, session_id, theme).map_err(anyhow::Error::msg)?;
 
     let stop = Arc::new(AtomicBool::new(false));
     let (key_tx, mut key_rx) = mpsc::unbounded_channel();

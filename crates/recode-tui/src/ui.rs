@@ -1,4 +1,5 @@
 use crate::app::{App, Overlay};
+use crate::theme::Theme;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
@@ -7,16 +8,8 @@ use ratatui::Frame;
 use recode_schema::part::{Part, ToolStatus};
 use unicode_width::UnicodeWidthStr;
 
-const ACCENT: Color = Color::Rgb(122, 162, 247);
-const GREEN: Color = Color::Rgb(158, 206, 106);
-const DIM: Color = Color::Rgb(96, 104, 128);
-const TEXT: Color = Color::Rgb(220, 224, 240);
-const TOOL: Color = Color::Rgb(187, 154, 247);
-const ERROR: Color = Color::Rgb(247, 118, 142);
-const WARN: Color = Color::Rgb(224, 175, 104);
-const CODE_BG: Color = Color::Rgb(36, 40, 59);
-
 pub fn draw(frame: &mut Frame, app: &App) {
+    let theme = &app.theme;
     let area = frame.area();
     let input_visual = app.input.visual(area.width.saturating_sub(2) as usize);
     let input_height = (input_visual.0.len().clamp(1, 6) as u16) + 2;
@@ -38,7 +31,7 @@ pub fn draw(frame: &mut Frame, app: &App) {
     draw_header(frame, app, chunks[0]);
     draw_transcript(frame, app, chunks[1]);
     if todo_height > 0 {
-        draw_todos(frame, &todos, chunks[2]);
+        draw_todos(frame, &todos, chunks[2], theme);
     }
     draw_input(frame, app, chunks[3], input_visual);
     if app.overlay == Overlay::None {
@@ -49,6 +42,7 @@ pub fn draw(frame: &mut Frame, app: &App) {
 }
 
 fn draw_completion(frame: &mut Frame, app: &App, input_area: Rect, area: Rect) {
+    let theme = &app.theme;
     let Some(completion) = &app.completion else {
         return;
     };
@@ -66,10 +60,10 @@ fn draw_completion(frame: &mut Frame, app: &App, input_area: Rect, area: Rect) {
     frame.render_widget(Clear, rect);
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(DIM))
+        .border_style(Style::default().fg(theme.dim))
         .title(Span::styled(
             format!(" {}{} ", completion.sigil, completion.prefix),
-            Style::default().fg(DIM),
+            Style::default().fg(theme.dim),
         ));
     let inner = block.inner(rect);
     let items: Vec<ListItem> = completion
@@ -78,15 +72,15 @@ fn draw_completion(frame: &mut Frame, app: &App, input_area: Rect, area: Rect) {
         .map(|path| {
             ListItem::new(Line::from(Span::styled(
                 path.clone(),
-                Style::default().fg(TEXT),
+                Style::default().fg(theme.text),
             )))
         })
         .collect();
     let list = List::new(items)
         .highlight_style(
             Style::default()
-                .bg(Color::Rgb(45, 52, 78))
-                .fg(ACCENT)
+                .bg(theme.selected_bg)
+                .fg(theme.accent)
                 .add_modifier(Modifier::BOLD),
         )
         .highlight_symbol("› ");
@@ -100,21 +94,21 @@ fn draw_completion(frame: &mut Frame, app: &App, input_area: Rect, area: Rect) {
     frame.render_widget(block, rect);
 }
 
-fn draw_todos(frame: &mut Frame, todos: &[recode_tool::TodoItem], area: Rect) {
+fn draw_todos(frame: &mut Frame, todos: &[recode_tool::TodoItem], area: Rect, theme: &Theme) {
     let width = area.width.saturating_sub(4) as usize;
     let mut lines = vec![Line::from(vec![
         Span::raw("  "),
         Span::styled(
             "todos",
-            Style::default().fg(DIM).add_modifier(Modifier::BOLD),
+            Style::default().fg(theme.dim).add_modifier(Modifier::BOLD),
         ),
     ])];
     for todo in todos.iter().take(5) {
         let (marker, style) = match todo.status {
-            recode_tool::TodoStatus::Completed => ("✓", Style::default().fg(DIM)),
-            recode_tool::TodoStatus::InProgress => ("▶", Style::default().fg(WARN)),
-            recode_tool::TodoStatus::Cancelled => ("×", Style::default().fg(DIM)),
-            recode_tool::TodoStatus::Pending => ("·", Style::default().fg(TEXT)),
+            recode_tool::TodoStatus::Completed => ("✓", Style::default().fg(theme.dim)),
+            recode_tool::TodoStatus::InProgress => ("▶", Style::default().fg(theme.warn)),
+            recode_tool::TodoStatus::Cancelled => ("×", Style::default().fg(theme.dim)),
+            recode_tool::TodoStatus::Pending => ("·", Style::default().fg(theme.text)),
         };
         lines.push(Line::from(vec![
             Span::raw("  "),
@@ -125,25 +119,28 @@ fn draw_todos(frame: &mut Frame, todos: &[recode_tool::TodoItem], area: Rect) {
     if todos.len() > 5 {
         lines.push(Line::from(Span::styled(
             format!("  … {} more", todos.len() - 5),
-            Style::default().fg(DIM),
+            Style::default().fg(theme.dim),
         )));
     }
     frame.render_widget(Paragraph::new(lines), area);
 }
 
 fn draw_header(frame: &mut Frame, app: &App, area: Rect) {
+    let theme = &app.theme;
     let title = truncate(
         &app.session.display_title(),
         area.width.saturating_sub(48) as usize,
     );
     let status = match app.status {
-        recode_schema::event::SessionStatus::Idle => Span::styled("idle", Style::default().fg(DIM)),
+        recode_schema::event::SessionStatus::Idle => {
+            Span::styled("idle", Style::default().fg(theme.dim))
+        }
         recode_schema::event::SessionStatus::Busy => Span::styled(
             "working",
-            Style::default().fg(WARN).add_modifier(Modifier::BOLD),
+            Style::default().fg(theme.warn).add_modifier(Modifier::BOLD),
         ),
         recode_schema::event::SessionStatus::Retry => {
-            Span::styled("retrying", Style::default().fg(ERROR))
+            Span::styled("retrying", Style::default().fg(theme.error))
         }
     };
     let line = Line::from(vec![
@@ -151,18 +148,18 @@ fn draw_header(frame: &mut Frame, app: &App, area: Rect) {
             " Re:Code ",
             Style::default()
                 .fg(Color::Black)
-                .bg(ACCENT)
+                .bg(theme.accent)
                 .add_modifier(Modifier::BOLD),
         ),
         Span::raw(" "),
         Span::styled(
             title,
-            Style::default().fg(TEXT).add_modifier(Modifier::BOLD),
+            Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
         ),
-        Span::styled("  ·  ", Style::default().fg(DIM)),
-        Span::styled(app.model_label(), Style::default().fg(ACCENT)),
-        Span::styled("  ·  ", Style::default().fg(DIM)),
-        Span::styled(app.agent_label(), Style::default().fg(GREEN)),
+        Span::styled("  ·  ", Style::default().fg(theme.dim)),
+        Span::styled(app.model_label(), Style::default().fg(theme.accent)),
+        Span::styled("  ·  ", Style::default().fg(theme.dim)),
+        Span::styled(app.agent_label(), Style::default().fg(theme.green)),
         Span::raw("  "),
         status,
     ]);
@@ -170,6 +167,7 @@ fn draw_header(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 fn draw_transcript(frame: &mut Frame, app: &App, area: Rect) {
+    let theme = &app.theme;
     let width = area.width.saturating_sub(2) as usize;
     let mut lines = Vec::new();
     if app.messages.is_empty() {
@@ -178,14 +176,16 @@ fn draw_transcript(frame: &mut Frame, app: &App, area: Rect) {
             Span::raw("  "),
             Span::styled(
                 "Welcome to Re:Code.",
-                Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(theme.accent)
+                    .add_modifier(Modifier::BOLD),
             ),
         ]));
         lines.push(Line::from(vec![
             Span::raw("  "),
             Span::styled(
                 "Describe a task. I can read the codebase, edit files, and run commands.",
-                Style::default().fg(DIM),
+                Style::default().fg(theme.dim),
             ),
         ]));
         lines.push(Line::from(""));
@@ -197,13 +197,16 @@ fn draw_transcript(frame: &mut Frame, app: &App, area: Rect) {
             "  F2 / F3      choose model / agent",
             "  F4           resume a session",
         ] {
-            lines.push(Line::from(Span::styled(hint, Style::default().fg(DIM))));
+            lines.push(Line::from(Span::styled(
+                hint,
+                Style::default().fg(theme.dim),
+            )));
         }
     }
     for message in &app.messages {
         let (label, color) = match message.info.role {
-            recode_schema::Role::User => ("you", GREEN),
-            recode_schema::Role::Assistant => ("recode", ACCENT),
+            recode_schema::Role::User => ("you", theme.green),
+            recode_schema::Role::Assistant => ("recode", theme.accent),
         };
         lines.push(Line::from(""));
         lines.push(Line::from(vec![
@@ -223,11 +226,11 @@ fn draw_transcript(frame: &mut Frame, app: &App, area: Rect) {
                             &text.text,
                             width,
                             2,
-                            Style::default().fg(DIM),
+                            Style::default().fg(theme.dim),
                             true,
                         );
                     } else {
-                        push_markdown(&mut lines, &text.text, width, 2);
+                        push_markdown(&mut lines, &text.text, width, 2, theme);
                     }
                 }
                 Part::Reasoning(reasoning) => {
@@ -236,7 +239,9 @@ fn draw_transcript(frame: &mut Frame, app: &App, area: Rect) {
                             Span::raw("  "),
                             Span::styled(
                                 "· thinking",
-                                Style::default().fg(DIM).add_modifier(Modifier::ITALIC),
+                                Style::default()
+                                    .fg(theme.dim)
+                                    .add_modifier(Modifier::ITALIC),
                             ),
                         ]));
                         let text = limit_lines(&reasoning.text, 40);
@@ -245,12 +250,14 @@ fn draw_transcript(frame: &mut Frame, app: &App, area: Rect) {
                             &text,
                             width,
                             4,
-                            Style::default().fg(DIM).add_modifier(Modifier::ITALIC),
+                            Style::default()
+                                .fg(theme.dim)
+                                .add_modifier(Modifier::ITALIC),
                             false,
                         );
                     }
                 }
-                Part::Tool(tool) => draw_tool(&mut lines, tool, width, app.tick),
+                Part::Tool(tool) => draw_tool(&mut lines, tool, width, app.tick, theme),
                 Part::StepFinish(finish) => {
                     let usage = &finish.tokens;
                     lines.push(Line::from(vec![
@@ -262,7 +269,7 @@ fn draw_transcript(frame: &mut Frame, app: &App, area: Rect) {
                                 format_tokens(usage.output_tokens),
                                 finish.cost
                             ),
-                            Style::default().fg(DIM),
+                            Style::default().fg(theme.dim),
                         ),
                     ]));
                 }
@@ -271,9 +278,11 @@ fn draw_transcript(frame: &mut Frame, app: &App, area: Rect) {
                         Span::raw("  "),
                         Span::styled(
                             "error: ",
-                            Style::default().fg(ERROR).add_modifier(Modifier::BOLD),
+                            Style::default()
+                                .fg(theme.error)
+                                .add_modifier(Modifier::BOLD),
                         ),
-                        Span::styled(error.message.clone(), Style::default().fg(ERROR)),
+                        Span::styled(error.message.clone(), Style::default().fg(theme.error)),
                     ]));
                 }
                 Part::File(file) => {
@@ -281,20 +290,23 @@ fn draw_transcript(frame: &mut Frame, app: &App, area: Rect) {
                         Span::raw("  "),
                         Span::styled(
                             format!("[{}] {}", file.mime, file.filename),
-                            Style::default().fg(DIM),
+                            Style::default().fg(theme.dim),
                         ),
                     ]));
                 }
                 Part::Compaction(_) => {
                     lines.push(Line::from(vec![
                         Span::raw("  "),
-                        Span::styled("· context compacted", Style::default().fg(DIM)),
+                        Span::styled("· context compacted", Style::default().fg(theme.dim)),
                     ]));
                 }
                 Part::Agent(agent) => {
                     lines.push(Line::from(vec![
                         Span::raw("  "),
-                        Span::styled(format!("· agent: {}", agent.name), Style::default().fg(DIM)),
+                        Span::styled(
+                            format!("· agent: {}", agent.name),
+                            Style::default().fg(theme.dim),
+                        ),
                     ]));
                 }
                 Part::Model(model) => {
@@ -302,7 +314,7 @@ fn draw_transcript(frame: &mut Frame, app: &App, area: Rect) {
                         Span::raw("  "),
                         Span::styled(
                             format!("· model: {}", model.model.qualified()),
-                            Style::default().fg(DIM),
+                            Style::default().fg(theme.dim),
                         ),
                     ]));
                 }
@@ -322,7 +334,7 @@ fn draw_transcript(frame: &mut Frame, app: &App, area: Rect) {
                             Span::raw("  "),
                             Span::styled(
                                 format!("· changed {} file(s): {preview}", patch.files.len()),
-                                Style::default().fg(DIM),
+                                Style::default().fg(theme.dim),
                             ),
                         ]));
                     }
@@ -350,7 +362,7 @@ fn draw_transcript(frame: &mut Frame, app: &App, area: Rect) {
         frame.render_widget(
             Paragraph::new(Line::from(Span::styled(
                 "▼ scrolled up ",
-                Style::default().fg(WARN),
+                Style::default().fg(theme.warn),
             ))),
             indicator,
         );
@@ -358,16 +370,17 @@ fn draw_transcript(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 fn draw_input(frame: &mut Frame, app: &App, area: Rect, visual: (Vec<String>, usize, usize)) {
+    let theme = &app.theme;
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(
             if app.status == recode_schema::event::SessionStatus::Busy {
-                WARN
+                theme.warn
             } else {
-                ACCENT
+                theme.accent
             },
         ))
-        .title(Span::styled(" message ", Style::default().fg(DIM)));
+        .title(Span::styled(" message ", Style::default().fg(theme.dim)));
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
@@ -377,13 +390,13 @@ fn draw_input(frame: &mut Frame, app: &App, area: Rect, visual: (Vec<String>, us
     let displayed: Vec<Line> = if app.input.is_empty() {
         vec![Line::from(Span::styled(
             "Ask Re:Code to build something…   (F1 for help)",
-            Style::default().fg(DIM),
+            Style::default().fg(theme.dim),
         ))]
     } else {
         lines
             .iter()
             .skip(offset)
-            .map(|line| Line::from(Span::styled(line.clone(), Style::default().fg(TEXT))))
+            .map(|line| Line::from(Span::styled(line.clone(), Style::default().fg(theme.text))))
             .collect()
     };
     frame.render_widget(Paragraph::new(displayed), inner);
@@ -396,6 +409,7 @@ fn draw_input(frame: &mut Frame, app: &App, area: Rect, visual: (Vec<String>, us
 }
 
 fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
+    let theme = &app.theme;
     let usage = app.usage();
     let right = if usage.total_tokens > 0 {
         format!(
@@ -413,7 +427,7 @@ fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
         frame.render_widget(
             Paragraph::new(Line::from(Span::styled(
                 format!(" {notice}"),
-                Style::default().fg(WARN),
+                Style::default().fg(theme.warn),
             ))),
             chunks[0],
         );
@@ -421,20 +435,24 @@ fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
         frame.render_widget(
             Paragraph::new(Line::from(Span::styled(
                 " Enter send · Alt+Enter newline · Esc abort · F1 help · F2 model · F3 agent · F4 sessions",
-                Style::default().fg(DIM),
+                Style::default().fg(theme.dim),
             ))),
             chunks[0],
         );
     }
     if right_width > 0 {
         frame.render_widget(
-            Paragraph::new(Line::from(Span::styled(right, Style::default().fg(DIM)))),
+            Paragraph::new(Line::from(Span::styled(
+                right,
+                Style::default().fg(theme.dim),
+            ))),
             chunks[1],
         );
     }
 }
 
 fn draw_overlay(frame: &mut Frame, app: &App, area: Rect) {
+    let theme = &app.theme;
     if app.overlay == Overlay::None {
         return;
     }
@@ -454,10 +472,12 @@ fn draw_overlay(frame: &mut Frame, app: &App, area: Rect) {
     };
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(ACCENT))
+        .border_style(Style::default().fg(theme.accent))
         .title(Span::styled(
             title,
-            Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(theme.accent)
+                .add_modifier(Modifier::BOLD),
         ));
     let inner = block.inner(rect);
     frame.render_widget(block, rect);
@@ -476,13 +496,13 @@ fn draw_overlay(frame: &mut Frame, app: &App, area: Rect) {
                 "  Ctrl+R           show/hide reasoning",
                 "  Ctrl+C           abort, or quit when idle",
                 "",
-                "  Slash commands   /new /fork /undo /model /agent /sessions /compact /abort /reasoning /clear /quit",
+                "  Slash commands   /new /fork /undo /model /agent /sessions /compact /abort /reasoning /theme /clear /quit",
                 "",
                 "  @path            complete a project file (↑/↓, Enter/Tab)",
                 "  F4 + typing      search sessions by title or id",
             ]
             .iter()
-            .map(|line| Line::from(Span::styled(*line, Style::default().fg(TEXT))))
+            .map(|line| Line::from(Span::styled(*line, Style::default().fg(theme.text))))
             .collect();
             let custom: Vec<String> = app
                 .backend
@@ -494,7 +514,7 @@ fn draw_overlay(frame: &mut Frame, app: &App, area: Rect) {
                 lines.push(Line::from(""));
                 lines.push(Line::from(Span::styled(
                     format!("  Custom commands  {}", custom.join(" ")),
-                    Style::default().fg(TEXT),
+                    Style::default().fg(theme.text),
                 )));
             }
             frame.render_widget(Paragraph::new(lines), inner);
@@ -506,15 +526,15 @@ fn draw_overlay(frame: &mut Frame, app: &App, area: Rect) {
                 .map(|item| {
                     ListItem::new(Line::from(Span::styled(
                         item.label.clone(),
-                        Style::default().fg(TEXT),
+                        Style::default().fg(theme.text),
                     )))
                 })
                 .collect();
             let list = List::new(items)
                 .highlight_style(
                     Style::default()
-                        .bg(Color::Rgb(45, 52, 78))
-                        .fg(ACCENT)
+                        .bg(theme.selected_bg)
+                        .fg(theme.accent)
                         .add_modifier(Modifier::BOLD),
                 )
                 .highlight_symbol("› ");
@@ -532,7 +552,7 @@ fn draw_overlay(frame: &mut Frame, app: &App, area: Rect) {
                     Line::from(""),
                     Line::from(Span::styled(
                         format!("tool: {}", request.tool.clone().unwrap_or_default()),
-                        Style::default().fg(TEXT).add_modifier(Modifier::BOLD),
+                        Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
                     )),
                     Line::from(""),
                 ];
@@ -540,7 +560,7 @@ fn draw_overlay(frame: &mut Frame, app: &App, area: Rect) {
                     for line in wrap_text(pattern, inner.width.saturating_sub(4) as usize) {
                         lines.push(Line::from(Span::styled(
                             format!("  {line}"),
-                            Style::default().fg(WARN),
+                            Style::default().fg(theme.warn),
                         )));
                     }
                 }
@@ -552,7 +572,7 @@ fn draw_overlay(frame: &mut Frame, app: &App, area: Rect) {
                     {
                         lines.push(Line::from(Span::styled(
                             format!("  {line}"),
-                            Style::default().fg(DIM),
+                            Style::default().fg(theme.dim),
                         )));
                     }
                 }
@@ -560,19 +580,25 @@ fn draw_overlay(frame: &mut Frame, app: &App, area: Rect) {
                 lines.push(Line::from(vec![
                     Span::styled(
                         "  [y]",
-                        Style::default().fg(GREEN).add_modifier(Modifier::BOLD),
+                        Style::default()
+                            .fg(theme.green)
+                            .add_modifier(Modifier::BOLD),
                     ),
-                    Span::styled(" allow once    ", Style::default().fg(TEXT)),
+                    Span::styled(" allow once    ", Style::default().fg(theme.text)),
                     Span::styled(
                         "[a]",
-                        Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+                        Style::default()
+                            .fg(theme.accent)
+                            .add_modifier(Modifier::BOLD),
                     ),
-                    Span::styled(" always    ", Style::default().fg(TEXT)),
+                    Span::styled(" always    ", Style::default().fg(theme.text)),
                     Span::styled(
                         "[n]",
-                        Style::default().fg(ERROR).add_modifier(Modifier::BOLD),
+                        Style::default()
+                            .fg(theme.error)
+                            .add_modifier(Modifier::BOLD),
                     ),
-                    Span::styled(" reject", Style::default().fg(TEXT)),
+                    Span::styled(" reject", Style::default().fg(theme.text)),
                 ]));
                 frame.render_widget(Paragraph::new(lines), inner);
             }
@@ -589,20 +615,22 @@ fn draw_overlay(frame: &mut Frame, app: &App, area: Rect) {
                                 progress.index + 1,
                                 request.questions.len()
                             ),
-                            Style::default().fg(DIM),
+                            Style::default().fg(theme.dim),
                         )),
                         Line::from(""),
                     ];
                     if !question.header.is_empty() {
                         lines.push(Line::from(Span::styled(
                             format!("  {}", question.header),
-                            Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+                            Style::default()
+                                .fg(theme.accent)
+                                .add_modifier(Modifier::BOLD),
                         )));
                     }
                     for line in wrap_text(&question.question, width) {
                         lines.push(Line::from(Span::styled(
                             format!("  {line}"),
-                            Style::default().fg(TEXT),
+                            Style::default().fg(theme.text),
                         )));
                     }
                     lines.push(Line::from(""));
@@ -611,15 +639,17 @@ fn draw_overlay(frame: &mut Frame, app: &App, area: Rect) {
                         let chosen =
                             progress.selected.contains(&index) || (!question.multiple && active);
                         let style = if active {
-                            Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)
+                            Style::default()
+                                .fg(theme.accent)
+                                .add_modifier(Modifier::BOLD)
                         } else {
-                            Style::default().fg(TEXT)
+                            Style::default().fg(theme.text)
                         };
                         lines.push(Line::from(vec![
                             Span::raw(if active { "  › " } else { "    " }),
                             Span::styled(
                                 if chosen { "[x] " } else { "[ ] " },
-                                Style::default().fg(if chosen { GREEN } else { DIM }),
+                                Style::default().fg(if chosen { theme.green } else { theme.dim }),
                             ),
                             Span::styled(option.label.clone(), style),
                         ]));
@@ -631,7 +661,7 @@ fn draw_overlay(frame: &mut Frame, app: &App, area: Rect) {
                                 {
                                     lines.push(Line::from(Span::styled(
                                         format!("        {line}"),
-                                        Style::default().fg(DIM),
+                                        Style::default().fg(theme.dim),
                                     )));
                                 }
                             }
@@ -639,14 +669,14 @@ fn draw_overlay(frame: &mut Frame, app: &App, area: Rect) {
                     }
                     lines.push(Line::from(""));
                     lines.push(Line::from(vec![
-                        Span::styled("  ↑/↓", Style::default().fg(ACCENT)),
-                        Span::styled(" choose   ", Style::default().fg(DIM)),
-                        Span::styled("space", Style::default().fg(ACCENT)),
-                        Span::styled(" select   ", Style::default().fg(DIM)),
-                        Span::styled("enter", Style::default().fg(GREEN)),
-                        Span::styled(" confirm   ", Style::default().fg(DIM)),
-                        Span::styled("esc", Style::default().fg(ERROR)),
-                        Span::styled(" decline", Style::default().fg(DIM)),
+                        Span::styled("  ↑/↓", Style::default().fg(theme.accent)),
+                        Span::styled(" choose   ", Style::default().fg(theme.dim)),
+                        Span::styled("space", Style::default().fg(theme.accent)),
+                        Span::styled(" select   ", Style::default().fg(theme.dim)),
+                        Span::styled("enter", Style::default().fg(theme.green)),
+                        Span::styled(" confirm   ", Style::default().fg(theme.dim)),
+                        Span::styled("esc", Style::default().fg(theme.error)),
+                        Span::styled(" decline", Style::default().fg(theme.dim)),
                     ]));
                     frame.render_widget(Paragraph::new(lines), inner);
                 }
@@ -661,12 +691,13 @@ fn draw_tool(
     tool: &recode_schema::part::ToolPart,
     width: usize,
     tick: u64,
+    theme: &Theme,
 ) {
     let (icon, color) = match tool.state.status {
-        ToolStatus::Pending => ("○", DIM),
-        ToolStatus::Running => (["◐", "◓", "◑", "◒"][(tick / 2 % 4) as usize], WARN),
-        ToolStatus::Completed => ("●", TOOL),
-        ToolStatus::Error => ("✗", ERROR),
+        ToolStatus::Pending => ("○", theme.dim),
+        ToolStatus::Running => (["◐", "◓", "◑", "◒"][(tick / 2 % 4) as usize], theme.warn),
+        ToolStatus::Completed => ("●", theme.tool),
+        ToolStatus::Error => ("✗", theme.error),
     };
     let title = tool
         .state
@@ -705,16 +736,22 @@ fn draw_tool(
     };
     if !body.trim().is_empty() {
         let style = if tool.state.status == ToolStatus::Error {
-            Style::default().fg(ERROR)
+            Style::default().fg(theme.error)
         } else {
-            Style::default().fg(DIM)
+            Style::default().fg(theme.dim)
         };
         let preview = limit_lines(body, 6);
         push_text(lines, &preview, width, 4, style, true);
     }
 }
 
-fn push_markdown(lines: &mut Vec<Line<'static>>, text: &str, width: usize, indent: usize) {
+fn push_markdown(
+    lines: &mut Vec<Line<'static>>,
+    text: &str,
+    width: usize,
+    indent: usize,
+    theme: &Theme,
+) {
     let mut in_code = false;
     for line in text.lines() {
         let trimmed = line.trim_start();
@@ -729,7 +766,7 @@ fn push_markdown(lines: &mut Vec<Line<'static>>, text: &str, width: usize, inden
                 &format!("│ {line}"),
                 width,
                 indent,
-                Style::default().fg(Color::Rgb(180, 190, 210)).bg(CODE_BG),
+                Style::default().fg(theme.text).bg(theme.code_bg),
                 false,
             );
             lines.extend(styled);
@@ -742,7 +779,9 @@ fn push_markdown(lines: &mut Vec<Line<'static>>, text: &str, width: usize, inden
                 heading,
                 width,
                 indent,
-                Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(theme.accent)
+                    .add_modifier(Modifier::BOLD),
                 true,
             );
             continue;
@@ -757,7 +796,7 @@ fn push_markdown(lines: &mut Vec<Line<'static>>, text: &str, width: usize, inden
             &cleaned,
             width,
             indent,
-            Style::default().fg(TEXT),
+            Style::default().fg(theme.text),
             true,
         );
     }
