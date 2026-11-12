@@ -552,7 +552,7 @@ async fn run_remote(server: String, args: RunArgs) -> anyhow::Result<()> {
                 .session
         }
         None if args.continue_session => client
-            .sessions(true)
+            .sessions(false, false)
             .await
             .map_err(anyhow::Error::msg)?
             .into_iter()

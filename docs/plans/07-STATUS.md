@@ -8,7 +8,7 @@ Last updated: 2026-11-09 (verified release build + benchmark)
 OpenCode Zen free tier, models.dev, Console OAuth, and markdown agents/commands.
 
 ```
-cargo test --workspace       117 passed, 0 failed
+cargo test --workspace       120 passed, 0 failed
 cargo clippy --workspace --all-targets -- -D warnings   clean
 cargo fmt --all --check       clean
 cargo build --release --locked --bin recode             verified (20m07s, jobs=1)
@@ -60,6 +60,11 @@ binary                       18.0 MiB
   messages after a boundary, and `sessions export --format md` renders a shareable
   transcript (verified on the mock-provider transcript). `POST /api/sessions/{id}/fork`
   and `/revert` (with `files: true`) work over HTTP.
+- Remote sessions: `recode sessions --server URL --token T <list|show|delete|export|fork|revert|restore|compact>`
+  drives a `recode serve` instance over HTTP. Verified end to end against the mock
+  provider: `run --server` created the session, then list/show/export/fork/restore/compact/revert/delete
+  all returned the expected output. `POST /api/sessions/{id}/restore` is the new server
+  route behind `sessions restore`.
 - File snapshots: every parent prompt commits the worktree to a shadow git repo under
   `<data>/snapshots/<project-id>`. A `write` tool edit was reverted by `sessions restore`
   and by the TUI `/undo` command (`script/tui_smoke.py --write --undo`), and the
@@ -151,7 +156,7 @@ binary                       18.0 MiB
 1. M9 parity: diff the CLI/config/TUI surface against the upstream fork and close gaps
    (themes/keybinds, share, subagent commands).
 2. Wire the benchmark into CI and track regressions.
-3. TUI attach over SSE (replace 4–20 Hz polling) and `sessions --server`.
+3. TUI attach over SSE (replace 4–20 Hz polling).
 4. Signed release binaries and parser fuzz tests.
 
 ## Known issues / gotchas
@@ -230,7 +235,9 @@ binary                       18.0 MiB
   `GET /api/files/content`, so the TUI can run on a different machine. `/` completion
   fetches `GET /api/commands`, and entering one expands it through
   `POST /api/commands/{name}`. `run --server` rejects `--file` and, without `--auto`,
-  rejects tool approvals (use the TUI to attach interactively).
+  rejects tool approvals (use the TUI to attach interactively). `recode sessions --server …`
+  performs the same list/show/delete/export/fork/revert/restore/compact commands against
+  the server, so a remote session store can be inspected without a local database.
 
 ## Architecture notes
 

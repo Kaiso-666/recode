@@ -167,6 +167,12 @@ pub enum AuthCommand {
 
 #[derive(Args)]
 pub struct SessionsArgs {
+    /// Attach to a running `recode serve` instance instead of using local storage.
+    #[arg(long)]
+    pub server: Option<String>,
+    /// Bearer token required by the server.
+    #[arg(long)]
+    pub token: Option<String>,
     #[command(subcommand)]
     pub command: SessionsCommand,
 }

@@ -81,6 +81,11 @@ pub struct RevertResponse {
 }
 
 #[derive(Clone, Debug, Deserialize)]
+struct RestoreResponse {
+    snapshot: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
 struct SessionsResponse {
     sessions: Vec<SessionInfo>,
 }
@@ -224,17 +229,29 @@ impl Client {
         Ok(response.content)
     }
 
-    pub async fn sessions(&self, all: bool) -> Result<Vec<SessionInfo>, String> {
+    pub async fn sessions(&self, all: bool, archived: bool) -> Result<Vec<SessionInfo>, String> {
         let response = self
             .http
             .get(format!("{}/api/sessions", self.base))
-            .query(&[("all", all.to_string()), ("archived", "false".into())])
+            .query(&[("all", all.to_string()), ("archived", archived.to_string())])
             .headers(self.headers()?)
             .send()
             .await
             .map_err(|error| error.to_string())?;
         let response: SessionsResponse = self.decode(response).await?;
         Ok(response.sessions)
+    }
+
+    pub async fn delete_session(&self, id: &str) -> Result<(), String> {
+        let response = self
+            .http
+            .delete(format!("{}/api/sessions/{id}", self.base))
+            .headers(self.headers()?)
+            .send()
+            .await
+            .map_err(|error| error.to_string())?;
+        let _: serde_json::Value = self.decode(response).await?;
+        Ok(())
     }
 
     pub async fn session(&self, id: &str) -> Result<SessionSnapshot, String> {
@@ -302,6 +319,16 @@ impl Client {
             &serde_json::json!({}),
         )
         .await
+    }
+
+    /// Restore the server's worktree to the snapshot attached to `message`
+    /// (or the last user message when omitted).
+    pub async fn restore(&self, id: &str, message: Option<&str>) -> Result<String, String> {
+        let body = serde_json::json!({ "messageId": message });
+        let response: RestoreResponse = self
+            .post(&format!("/api/sessions/{id}/restore"), &body)
+            .await?;
+        Ok(response.snapshot)
     }
 
     pub async fn set_model(&self, id: &str, model: &str) -> Result<(), String> {

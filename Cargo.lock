@@ -1496,6 +1496,7 @@ dependencies = [
  "anyhow",
  "axum",
  "futures-util",
+ "recode-client",
  "recode-core",
  "recode-schema",
  "recode-storage",

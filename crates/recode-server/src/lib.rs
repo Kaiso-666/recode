@@ -62,6 +62,7 @@ impl Server {
             .route("/api/sessions/{id}/compact", post(compact))
             .route("/api/sessions/{id}/fork", post(fork_session))
             .route("/api/sessions/{id}/revert", post(revert_session))
+            .route("/api/sessions/{id}/restore", post(restore_session))
             .route("/api/sessions/{id}/events", get(session_events))
             .route("/api/events", get(events))
             .route("/api/permissions", get(list_permissions))
@@ -510,12 +511,39 @@ async fn revert_session(
     Ok(Json(json!({"removed": removed, "snapshot": snapshot})))
 }
 
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct RestoreRequest {
+    #[serde(default)]
+    message_id: Option<String>,
+    #[serde(default)]
+    message: Option<String>,
+}
+
+/// Restore the server's worktree to the snapshot taken with a message.
+async fn restore_session(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(body): Json<RestoreRequest>,
+) -> Result<Json<Value>, ApiError> {
+    let session_id = SessionId::from_existing(id);
+    let message = body
+        .message_id
+        .or(body.message)
+        .map(recode_schema::MessageId::from_existing);
+    let snapshot = state
+        .engine
+        .restore_files(&session_id, message.as_ref())
+        .await
+        .map_err(ApiError::bad_request)?;
+    Ok(Json(json!({"snapshot": snapshot})))
+}
+
 #[derive(Deserialize)]
 struct PermissionQuery {
     #[serde(default)]
     session: Option<String>,
 }
-
 async fn list_permissions(
     State(state): State<AppState>,
     Query(query): Query<PermissionQuery>,
@@ -662,6 +690,7 @@ async fn openapi() -> Json<Value> {
             "/api/sessions/{id}/compact": {"post": {"operationId": "sessions.compact"}},
             "/api/sessions/{id}/fork": {"post": {"operationId": "sessions.fork"}},
             "/api/sessions/{id}/revert": {"post": {"operationId": "sessions.revert"}},
+            "/api/sessions/{id}/restore": {"post": {"operationId": "sessions.restore"}},
             "/api/sessions/{id}/events": {"get": {"operationId": "sessions.events"}},
             "/api/events": {"get": {"operationId": "events"}},
             "/api/permissions": {"get": {"operationId": "permissions.list"}},

@@ -80,7 +80,7 @@ impl Backend {
         client.health().await?;
         let snapshot = client.session(session_id).await?;
         let messages = client.messages(session_id).await?;
-        let sessions = client.sessions(true).await.unwrap_or_default();
+        let sessions = client.sessions(true, true).await.unwrap_or_default();
         let providers = client.providers().await.unwrap_or_default();
         let agents = client.agents().await.unwrap_or_default();
         let commands = client.commands().await.unwrap_or_default();
@@ -289,7 +289,7 @@ impl Backend {
         match (&self.local, &self.remote) {
             (Some(engine), _) => engine.sessions(true),
             (_, Some(remote)) => {
-                let sessions = remote.client.sessions(true).await?;
+                let sessions = remote.client.sessions(true, true).await?;
                 remote.cache.write().unwrap().sessions = sessions.clone();
                 Ok(sessions)
             }

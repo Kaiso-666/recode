@@ -1,12 +1,18 @@
 use crate::cli::{SessionsArgs, SessionsCommand};
+use recode_client::Client;
 use recode_core::engine::Engine;
 use recode_core::permission::AutoReject;
 use recode_core::EngineOptions;
+use recode_schema::message::Message;
 use recode_schema::part::Part;
 use recode_schema::SessionId;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 pub async fn run(args: SessionsArgs) -> anyhow::Result<()> {
+    if let Some(server) = args.server {
+        return run_remote(server, args.token, args.command).await;
+    }
     let directory = crate::cmd::directory(None)?;
     let engine = Engine::new(EngineOptions {
         paths: crate::cmd::paths(),
@@ -23,50 +29,12 @@ pub async fn run(args: SessionsArgs) -> anyhow::Result<()> {
                 engine.sessions(archived)
             }
             .map_err(anyhow::Error::msg)?;
-            if sessions.is_empty() {
-                println!("No sessions.");
-                return Ok(());
-            }
-            for session in sessions {
-                println!(
-                    "{}\t{}\t{}\t{}",
-                    session.id,
-                    format_time(session.updated_at),
-                    session.directory.display(),
-                    if session.title.is_empty() {
-                        "(untitled)"
-                    } else {
-                        &session.title
-                    }
-                );
-            }
+            print_sessions(&sessions);
         }
         SessionsCommand::Show { id } => {
             let session_id = SessionId::from_existing(id);
             let messages = engine.messages(&session_id).map_err(anyhow::Error::msg)?;
-            for message in messages {
-                println!("\n=== {} {} ===", message.info.role, message.info.id);
-                for part in message.parts {
-                    match part {
-                        Part::Text(text) => println!("{}", text.text),
-                        Part::Reasoning(reasoning) => println!("[thinking] {}", reasoning.text),
-                        Part::Tool(tool) => {
-                            println!(
-                                "[tool] {} ({:?})\n{}",
-                                tool.tool,
-                                tool.state.status,
-                                tool.state.output.or(tool.state.error).unwrap_or_default()
-                            );
-                        }
-                        Part::StepFinish(finish) => println!(
-                            "[step] {:?} · {} tokens",
-                            finish.reason, finish.tokens.total_tokens
-                        ),
-                        Part::Error(error) => println!("[error] {}", error.message),
-                        _ => {}
-                    }
-                }
-            }
+            print_messages(&messages);
         }
         SessionsCommand::Delete { id } => {
             engine
@@ -81,21 +49,7 @@ pub async fn run(args: SessionsArgs) -> anyhow::Result<()> {
                 .map_err(anyhow::Error::msg)?
                 .ok_or_else(|| anyhow::anyhow!("session {id} not found"))?;
             let messages = engine.messages(&session_id).map_err(anyhow::Error::msg)?;
-            let text = if format == "json" {
-                serde_json::to_string_pretty(&serde_json::json!({
-                    "session": session,
-                    "messages": messages,
-                }))?
-            } else {
-                to_markdown(&session, &messages)
-            };
-            match output {
-                Some(path) => {
-                    std::fs::write(&path, text)?;
-                    println!("Wrote {}", path.display());
-                }
-                None => println!("{text}"),
-            }
+            write_export(&session, &messages, output, &format)?;
         }
         SessionsCommand::Fork { id, title } => {
             let session_id = SessionId::from_existing(id.clone());
@@ -141,6 +95,150 @@ pub async fn run(args: SessionsArgs) -> anyhow::Result<()> {
                 None => println!("Nothing to compact in {id}"),
             }
         }
+    }
+    Ok(())
+}
+
+/// Session commands can run against a `recode serve` instance, so the CLI can
+/// inspect a remote machine's sessions without a local database.
+async fn run_remote(
+    server: String,
+    token: Option<String>,
+    command: SessionsCommand,
+) -> anyhow::Result<()> {
+    let client = Client::new(server, token);
+    client.health().await.map_err(anyhow::Error::msg)?;
+    match command {
+        SessionsCommand::List { all, archived } => {
+            let sessions = client
+                .sessions(all, archived)
+                .await
+                .map_err(anyhow::Error::msg)?;
+            print_sessions(&sessions);
+        }
+        SessionsCommand::Show { id } => {
+            let messages = client.messages(&id).await.map_err(anyhow::Error::msg)?;
+            print_messages(&messages);
+        }
+        SessionsCommand::Delete { id } => {
+            client
+                .delete_session(&id)
+                .await
+                .map_err(anyhow::Error::msg)?;
+            println!("Deleted {id}");
+        }
+        SessionsCommand::Export { id, output, format } => {
+            let snapshot = client.session(&id).await.map_err(anyhow::Error::msg)?;
+            let messages = client.messages(&id).await.map_err(anyhow::Error::msg)?;
+            write_export(&snapshot.session, &messages, output, &format)?;
+        }
+        SessionsCommand::Fork { id, title } => {
+            let forked = client.fork(&id, title).await.map_err(anyhow::Error::msg)?;
+            let count = client
+                .messages(&forked.id.0)
+                .await
+                .map_err(anyhow::Error::msg)?
+                .len();
+            println!("Forked {id} -> {} ({count} messages)", forked.id);
+        }
+        SessionsCommand::Revert { id, message } => {
+            let response = client
+                .revert(&id, &message, false)
+                .await
+                .map_err(anyhow::Error::msg)?;
+            println!("Reverted {id}: removed {} message(s)", response.removed);
+        }
+        SessionsCommand::Restore { id, message } => {
+            let snapshot = client
+                .restore(&id, message.as_deref())
+                .await
+                .map_err(anyhow::Error::msg)?;
+            println!("Restored {id} to snapshot {snapshot}");
+        }
+        SessionsCommand::Compact { id } => {
+            let summary = client.compact(&id).await.map_err(anyhow::Error::msg)?;
+            match (summary.tokens_before, summary.tokens_after) {
+                (Some(before), Some(after)) if summary.compacted => {
+                    println!("Compacted {id}: {before} → {after} tokens");
+                }
+                _ if summary.compacted => println!("Compacted {id}"),
+                _ => println!("Nothing to compact in {id}"),
+            }
+        }
+    }
+    Ok(())
+}
+
+fn print_sessions(sessions: &[recode_schema::event::SessionInfo]) {
+    if sessions.is_empty() {
+        println!("No sessions.");
+        return;
+    }
+    for session in sessions {
+        println!(
+            "{}\t{}\t{}\t{}",
+            session.id,
+            format_time(session.updated_at),
+            session.directory.display(),
+            if session.title.is_empty() {
+                "(untitled)"
+            } else {
+                &session.title
+            }
+        );
+    }
+}
+
+fn print_messages(messages: &[Message]) {
+    for message in messages {
+        println!("\n=== {} {} ===", message.info.role, message.info.id);
+        for part in &message.parts {
+            match part {
+                Part::Text(text) => println!("{}", text.text),
+                Part::Reasoning(reasoning) => println!("[thinking] {}", reasoning.text),
+                Part::Tool(tool) => {
+                    println!(
+                        "[tool] {} ({:?})\n{}",
+                        tool.tool,
+                        tool.state.status,
+                        tool.state
+                            .output
+                            .as_deref()
+                            .or(tool.state.error.as_deref())
+                            .unwrap_or_default()
+                    );
+                }
+                Part::StepFinish(finish) => println!(
+                    "[step] {:?} · {} tokens",
+                    finish.reason, finish.tokens.total_tokens
+                ),
+                Part::Error(error) => println!("[error] {}", error.message),
+                _ => {}
+            }
+        }
+    }
+}
+
+fn write_export(
+    session: &recode_schema::event::SessionInfo,
+    messages: &[Message],
+    output: Option<PathBuf>,
+    format: &str,
+) -> anyhow::Result<()> {
+    let text = if format == "json" {
+        serde_json::to_string_pretty(&serde_json::json!({
+            "session": session,
+            "messages": messages,
+        }))?
+    } else {
+        to_markdown(session, messages)
+    };
+    match output {
+        Some(path) => {
+            std::fs::write(&path, text)?;
+            println!("Wrote {}", path.display());
+        }
+        None => println!("{text}"),
     }
     Ok(())
 }
