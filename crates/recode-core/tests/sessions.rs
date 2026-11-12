@@ -98,6 +98,47 @@ fn agent_markdown_model_wins_over_the_global_default() {
     );
 }
 
+#[tokio::test]
+async fn a_child_session_keeps_its_parent_and_inherits_the_agent() {
+    let dir = tempfile::tempdir().unwrap();
+    let project = dir.path().join("project");
+    std::fs::create_dir_all(project.join(".recode/agent")).unwrap();
+    std::fs::write(
+        project.join(".recode/agent/reviewer.md"),
+        "---\nmode: subagent\n---\nReview code.\n",
+    )
+    .unwrap();
+    let config_dir = dir.path().join("config");
+    std::fs::create_dir_all(&config_dir).unwrap();
+    std::fs::write(
+        config_dir.join("recode.json"),
+        r#"{"model":"openai/gpt-5"}"#,
+    )
+    .unwrap();
+    let engine = engine(dir.path(), &config_dir);
+
+    let parent = engine
+        .create_session(Some("build".into()), None, None)
+        .unwrap();
+    let child = engine
+        .create_child_session(
+            &parent.id,
+            Some("reviewer".into()),
+            None,
+            Some("Review".into()),
+        )
+        .unwrap();
+    assert_eq!(child.parent_id.as_ref(), Some(&parent.id));
+    assert_eq!(child.agent.as_deref(), Some("reviewer"));
+    assert_eq!(child.title, "Review");
+    // The child is a subagent, so it stays out of the session list.
+    let sessions = engine.sessions(false).unwrap();
+    assert!(!sessions.iter().any(|session| session.id == child.id));
+    let children = engine.child_sessions(&parent.id).unwrap();
+    assert_eq!(children.len(), 1);
+    assert_eq!(children[0].id, child.id);
+}
+
 #[test]
 fn fork_copies_the_transcript_and_revert_trims_it() {
     let dir = tempfile::tempdir().unwrap();

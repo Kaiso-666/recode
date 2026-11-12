@@ -8,7 +8,7 @@ Last updated: 2026-11-09 (verified release build + benchmark)
 OpenCode Zen free tier, models.dev, Console OAuth, and markdown agents/commands.
 
 ```
-cargo test --workspace       129 passed, 0 failed
+cargo test --workspace       131 passed, 0 failed
 cargo clippy --workspace --all-targets -- -D warnings   clean
 cargo fmt --all --check       clean
 cargo build --release --locked --bin recode             verified (27m58s, jobs=1)
@@ -110,6 +110,11 @@ binary                       18.3 MiB
   `solarized`) selected by the config's `theme` key, by `recode tui --theme`, or by
   `/theme <name>` while the UI is open. The TUI smoke test ran with `--theme gruvbox`;
   unit tests cover the lookup and the config key.
+- Subagent commands: a markdown command with `subagent: true` runs in a child session
+  (parent, agent, and model from the command) instead of being rejected. The CLI prints the
+  child's transcript; the TUI switches to the child so the subagent's work is on screen.
+  Verified with `recode run "/sub the bug"` (the child session carries `parentId` and stays
+  out of `sessions list`) and in the ConPTY smoke test.
 - Release benchmark: `script/bench.ps1 -Runs 20` on the release binary measured startup at
   mean 29.5 ms / p50 28.9 ms / p95 32.5 ms and an 18.3 MiB executable; the release build
   took 27m58s with `CARGO_BUILD_JOBS=1`. The release binary also passed the markdown
@@ -165,9 +170,7 @@ binary                       18.3 MiB
 ## Next actions (in order)
 
 1. M9 parity: diff the CLI/config/TUI surface against the upstream fork and close gaps
-   (keybinds, share, subagent commands).
-   - Subagent commands: a markdown command with `subagent: true` should run in a child
-     session (parent, agent, and model from the command) instead of being rejected.
+   (keybinds, share).
 2. Wire the benchmark into CI and track regressions.
 3. Signed release binaries and parser fuzz tests.
 

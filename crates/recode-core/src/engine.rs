@@ -176,6 +176,44 @@ impl Engine {
         Ok(session)
     }
 
+    /// Create a child session for a subagent command.
+    ///
+    /// The child runs in the parent's project and directory, keeps the parent
+    /// as its parent, and inherits the parent's agent and model unless the
+    /// command names its own.
+    pub fn create_child_session(
+        &self,
+        parent: &SessionId,
+        agent: Option<String>,
+        model: Option<ModelRef>,
+        title: Option<String>,
+    ) -> Result<SessionInfo, String> {
+        let parent_session = self
+            .session(parent)?
+            .ok_or_else(|| "parent session not found".to_owned())?;
+        let agent = agent
+            .or_else(|| parent_session.agent.clone())
+            .unwrap_or_else(|| self.config.default_agent());
+        if self.agents.get(&agent).is_none() {
+            return Err(format!("unknown agent {agent:?}"));
+        }
+        let model = match model {
+            Some(model) => Some(model),
+            None => initial_model(self, self.agent(&agent))
+                .ok()
+                .or(parent_session.model.clone()),
+        };
+        let mut session = SessionInfo::new(self.project.info.id.clone(), self.project.root.clone());
+        session.parent_id = Some(parent.clone());
+        session.agent = Some(agent);
+        session.model = model;
+        session.title = title.unwrap_or_default();
+        self.store
+            .create_session(session.clone())
+            .map_err(|error| error.to_string())?;
+        Ok(session)
+    }
+
     /// Copy a session's transcript into a new session. The fork gets fresh
     /// message and part IDs so it can evolve independently.
     pub fn fork_session(

@@ -306,6 +306,18 @@ impl Backend {
         self.agents().iter().any(|agent| agent.id == id)
     }
 
+    /// Whether the agent exists at all, subagents included. A subagent
+    /// command may name an agent that is not offered as a main-session
+    /// choice.
+    pub fn has_any_agent(&self, id: &str) -> bool {
+        match (&self.local, &self.remote) {
+            (Some(engine), _) => engine.agents.all().any(|agent| agent.id == id),
+            // A remote server validates the agent when the session is created.
+            (_, Some(_)) => true,
+            _ => false,
+        }
+    }
+
     /// Custom slash commands, used for completion and to decide whether a
     /// leading `/name` should be expanded instead of sent as text.
     pub fn commands(&self) -> Vec<CommandView> {
@@ -426,6 +438,38 @@ impl Backend {
             permissions,
             questions,
         })
+    }
+
+    /// Create a child session for a subagent command and switch to it.
+    pub async fn create_child_session(
+        &self,
+        parent: &recode_schema::SessionId,
+        agent: Option<String>,
+        model: Option<String>,
+        title: Option<String>,
+    ) -> Result<SessionInfo, String> {
+        match (&self.local, &self.remote) {
+            (Some(engine), _) => {
+                let model = match &model {
+                    Some(model) => Some(
+                        engine
+                            .config
+                            .resolve_model(Some(model))
+                            .map_err(|error| error.to_string())?,
+                    ),
+                    None => None,
+                };
+                engine.create_child_session(parent, agent, model, title)
+            }
+            (_, Some(remote)) => {
+                let session = remote
+                    .client
+                    .create_session_for(agent, model, title, Some(&parent.0))
+                    .await?;
+                Ok(session)
+            }
+            _ => Err("no backend".into()),
+        }
     }
 
     /// Switch the visible session (used by the session picker).

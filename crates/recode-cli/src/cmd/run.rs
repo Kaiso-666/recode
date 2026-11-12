@@ -110,36 +110,56 @@ pub async fn run(args: RunArgs) -> anyhow::Result<()> {
             None => (rest, ""),
         };
         if let Some(command) = engine.commands.get(name) {
-            if command.subagent {
-                anyhow::bail!("subagent slash commands are not supported yet");
-            }
             let expansion = command
                 .expand(arguments, &session.directory)
                 .await
                 .map_err(anyhow::Error::msg)?;
-            if args.agent.is_none() {
-                if let Some(agent) = &expansion.agent {
-                    engine
-                        .set_agent(&session.id, agent.clone())
-                        .map_err(anyhow::Error::msg)?;
+            if command.subagent {
+                // The command runs in a child session; the parent keeps its
+                // own transcript.
+                let title = if expansion.description.trim().is_empty() {
+                    name.to_owned()
+                } else {
+                    expansion.description.clone()
+                };
+                let child = engine
+                    .create_child_session(
+                        &session.id,
+                        expansion.agent.clone(),
+                        expansion
+                            .model
+                            .as_deref()
+                            .and_then(|model| engine.config.resolve_model(Some(model)).ok()),
+                        Some(title),
+                    )
+                    .map_err(anyhow::Error::msg)?;
+                session = child;
+                prompt = expansion.text;
+            } else {
+                if args.agent.is_none() {
+                    if let Some(agent) = &expansion.agent {
+                        engine
+                            .set_agent(&session.id, agent.clone())
+                            .map_err(anyhow::Error::msg)?;
+                    }
                 }
-            }
-            if args.model.is_none() {
-                if let Some(model) = &expansion.model {
-                    let model = engine
-                        .config
-                        .resolve_model(Some(model))
-                        .map_err(anyhow::Error::msg)?;
-                    engine
-                        .set_model(&session.id, model)
-                        .map_err(anyhow::Error::msg)?;
+                if args.model.is_none() {
+                    if let Some(model) = &expansion.model {
+                        let model = engine
+                            .config
+                            .resolve_model(Some(model))
+                            .map_err(anyhow::Error::msg)?;
+                        engine
+                            .set_model(&session.id, model)
+                            .map_err(anyhow::Error::msg)?;
+                    }
                 }
+                session = engine
+                    .session(&session.id)
+                    .map_err(anyhow::Error::msg)?
+                    .context("session disappeared")?;
+                prompt = expansion.text;
             }
-            session = engine
-                .session(&session.id)
-                .map_err(anyhow::Error::msg)?
-                .context("session disappeared")?;
-            prompt = expansion.text;
         }
     }
     let files = prepare_files(&args.file, &mut prompt)?;
@@ -542,7 +562,7 @@ async fn run_remote(server: String, args: RunArgs) -> anyhow::Result<()> {
         anyhow::bail!("you must provide a message");
     }
 
-    let session = match &args.session {
+    let mut session = match &args.session {
         Some(id) => {
             let id = recode_schema::SessionId::from_existing(id.clone());
             client
@@ -580,25 +600,42 @@ async fn run_remote(server: String, args: RunArgs) -> anyhow::Result<()> {
                 .await
                 .map_err(anyhow::Error::msg)?;
             if expansion.subagent {
-                anyhow::bail!("subagent slash commands are not supported yet");
-            }
-            if args.agent.is_none() {
-                if let Some(agent) = &expansion.agent {
-                    client
-                        .set_agent(&session.id.0, agent)
-                        .await
-                        .map_err(anyhow::Error::msg)?;
+                // The command runs in a child session on the server.
+                let title = if expansion.description.trim().is_empty() {
+                    name.to_owned()
+                } else {
+                    expansion.description.clone()
+                };
+                let child = client
+                    .create_session_for(
+                        expansion.agent.clone(),
+                        expansion.model.clone(),
+                        Some(title),
+                        Some(&session.id.0),
+                    )
+                    .await
+                    .map_err(anyhow::Error::msg)?;
+                session = child;
+                prompt = expansion.text;
+            } else {
+                if args.agent.is_none() {
+                    if let Some(agent) = &expansion.agent {
+                        client
+                            .set_agent(&session.id.0, agent)
+                            .await
+                            .map_err(anyhow::Error::msg)?;
+                    }
                 }
-            }
-            if args.model.is_none() {
-                if let Some(model) = &expansion.model {
-                    client
-                        .set_model(&session.id.0, model)
-                        .await
-                        .map_err(anyhow::Error::msg)?;
+                if args.model.is_none() {
+                    if let Some(model) = &expansion.model {
+                        client
+                            .set_model(&session.id.0, model)
+                            .await
+                            .map_err(anyhow::Error::msg)?;
+                    }
                 }
+                prompt = expansion.text;
             }
-            prompt = expansion.text;
         }
     }
     if json {

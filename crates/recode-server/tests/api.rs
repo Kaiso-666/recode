@@ -100,6 +100,39 @@ async fn commands_and_agents_are_listed() {
 }
 
 #[tokio::test]
+async fn a_child_session_is_created_with_its_parent() {
+    let dir = tempfile::tempdir().unwrap();
+    let config_dir = dir.path().join("config");
+    std::fs::create_dir_all(&config_dir).unwrap();
+    let client = start(engine(dir.path(), &config_dir)).await;
+
+    let parent = client
+        .create_session(None, None, None)
+        .await
+        .expect("parent");
+    let child = client
+        .create_session_for(
+            Some("general".into()),
+            None,
+            Some("Review".into()),
+            Some(&parent.id.0),
+        )
+        .await
+        .expect("child");
+    assert_eq!(
+        child.parent_id.as_ref().map(|id| id.0.as_str()),
+        Some(parent.id.0.as_str())
+    );
+    assert_eq!(child.agent.as_deref(), Some("general"));
+    assert_eq!(child.title, "Review");
+
+    // Children stay out of the session list.
+    let sessions = client.sessions(false, false).await.expect("list");
+    assert!(sessions.iter().any(|session| session.id == parent.id));
+    assert!(!sessions.iter().any(|session| session.id == child.id));
+}
+
+#[tokio::test]
 async fn the_event_stream_delivers_session_events() {
     let dir = tempfile::tempdir().unwrap();
     let config_dir = dir.path().join("config");

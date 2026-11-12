@@ -279,6 +279,7 @@ async fn list_sessions(
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct CreateSessionRequest {
     #[serde(default)]
     agent: Option<String>,
@@ -286,6 +287,9 @@ struct CreateSessionRequest {
     model: Option<String>,
     #[serde(default)]
     title: Option<String>,
+    /// Parent session; the new session becomes a subagent of it.
+    #[serde(default)]
+    parent_id: Option<String>,
 }
 
 async fn create_session(
@@ -302,10 +306,21 @@ async fn create_session(
         ),
         None => None,
     };
-    let session = state
-        .engine
-        .create_session(body.agent, model, body.title)
-        .map_err(ApiError::bad_request)?;
+    let session = match body.parent_id {
+        Some(parent) => state
+            .engine
+            .create_child_session(
+                &SessionId::from_existing(parent),
+                body.agent,
+                model,
+                body.title,
+            )
+            .map_err(ApiError::bad_request)?,
+        None => state
+            .engine
+            .create_session(body.agent, model, body.title)
+            .map_err(ApiError::bad_request)?,
+    };
     Ok(Json(json!({"session": session})))
 }
 

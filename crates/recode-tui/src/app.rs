@@ -3,6 +3,7 @@ use crate::input::Input;
 use crate::theme::Theme;
 use crate::AppEvent;
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseEvent, MouseEventKind};
+use recode_core::command::Expansion;
 use recode_schema::event::{DeltaKind, Event, LiveEvent, SessionInfo, SessionStatus};
 use recode_schema::message::Message;
 use recode_schema::part::Part;
@@ -1045,15 +1046,15 @@ impl App {
                         return;
                     }
                 };
-                if expansion.subagent {
-                    self.set_notice("subagent slash commands are not supported yet");
-                    return;
-                }
                 let original = if argument.is_empty() {
                     format!("/{name}")
                 } else {
                     format!("/{name} {argument}")
                 };
+                if expansion.subagent {
+                    self.run_subagent_command(name, &original, expansion).await;
+                    return;
+                }
                 if self.status == SessionStatus::Busy || self.backend.is_busy(&self.session.id) {
                     self.set_notice("session is busy — press Esc to abort");
                     self.input.set_text(&original);
@@ -1090,6 +1091,65 @@ impl App {
                 self.reload();
             }
         }
+    }
+
+    /// Run a subagent command in a child session and follow it there.
+    ///
+    /// The child keeps the parent as its parent, so the session picker still
+    /// shows only the top-level sessions; the UI switches to the child so the
+    /// subagent's work is visible.
+    async fn run_subagent_command(&mut self, name: &str, original: &str, expansion: Expansion) {
+        if self.status == SessionStatus::Busy || self.backend.is_busy(&self.session.id) {
+            self.set_notice("session is busy — press Esc to abort");
+            self.input.set_text(original);
+            return;
+        }
+        if let Some(agent) = &expansion.agent {
+            if !self.backend.has_any_agent(agent) {
+                self.set_notice(format!("unknown agent {agent:?}"));
+                return;
+            }
+        }
+        let title = if expansion.description.trim().is_empty() {
+            name.to_owned()
+        } else {
+            expansion.description.clone()
+        };
+        let child = match self
+            .backend
+            .create_child_session(
+                &self.session.id,
+                expansion.agent.clone(),
+                expansion.model.clone(),
+                Some(title),
+            )
+            .await
+        {
+            Ok(child) => child,
+            Err(error) => {
+                self.set_notice(error);
+                return;
+            }
+        };
+        // Follow the child so the subagent's transcript is what is on screen.
+        if let Err(error) = self.backend.open_session(&child.id).await {
+            self.set_notice(error);
+            return;
+        }
+        self.session = child;
+        self.history.push(original.to_owned());
+        self.history_pos = None;
+        self.file_cache.clear();
+        let text = self.backend.expand_file_references(expansion.text).await;
+        self.status = SessionStatus::Busy;
+        if let Err(error) = self.backend.prompt(&self.session.id, text.clone()).await {
+            self.set_notice(error);
+            self.input.set_text(&text);
+            self.status = SessionStatus::Idle;
+            return;
+        }
+        self.scroll_back = 0;
+        self.reload();
     }
 
     fn open_model_picker(&mut self) {

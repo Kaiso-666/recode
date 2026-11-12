@@ -334,10 +334,22 @@ impl Client {
         model: Option<String>,
         title: Option<String>,
     ) -> Result<SessionInfo, String> {
+        self.create_session_for(agent, model, title, None).await
+    }
+
+    /// Create a session, optionally as a child of `parent` (a subagent).
+    pub async fn create_session_for(
+        &self,
+        agent: Option<String>,
+        model: Option<String>,
+        title: Option<String>,
+        parent: Option<&str>,
+    ) -> Result<SessionInfo, String> {
         let body = serde_json::json!({
             "agent": agent,
             "model": model,
             "title": title,
+            "parentId": parent,
         });
         let response: SessionResponse = self.post("/api/sessions", &body).await?;
         Ok(response.session)

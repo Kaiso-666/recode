@@ -39,7 +39,7 @@ Status legend: `missing` · `partial` · `done` · `n/a` (explicit non-goal)
 | Model questions | yes | done (`question` tool: TUI modal, CLI prompt, HTTP broker) |
 | AGENTS.md instructions | yes | done |
 | Custom agents | yes | done (JSON, plus opencode-style `agent(s)`/`mode(s)` markdown) |
-| Custom commands | yes | done (markdown `command(s)`, arguments, shell interpolation; subagent flag parsed, not executed) |
+| Custom commands | yes | done (markdown `command(s)`, arguments, shell interpolation, subagent commands run in a child session) |
 | LSP diagnostics | yes | done (on-demand client; diagnostics in tool results) |
 | MCP | yes | done (stdio + streamable HTTP, tools bridged) |
 | Plugins (JS) | yes | n/a (Rust hooks) |

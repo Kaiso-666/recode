@@ -160,8 +160,7 @@ Project instructions are loaded from `AGENTS.md` and `CLAUDE.md` (plus
 Markdown files under `command(s)/**/*.md` (global config directory, `.opencode`,
 or `.recode`) become slash commands. The relative path is the name, the body is
 the prompt template, and frontmatter can set `description`, `agent`, `model`,
-and `subagent` (the last one is parsed but not executed yet). Project files
-override global files with the same name.
+and `subagent`. Project files override global files with the same name.
 
 ```markdown
 ---
@@ -187,6 +186,21 @@ recode run "/review src/main.rs"
 The TUI and CLI expand commands against the local engine, or through
 `POST /api/commands/{name}` when attached to `recode serve`, so inline shell
 always runs on the machine that owns the session.
+
+A command with `subagent: true` runs in a child session instead of the
+current one: the child keeps the current session as its parent, uses the
+command's `agent` and `model` (the parent's otherwise), and does not show up
+in the session list. The CLI prints the child's transcript; the TUI switches to
+the child so the subagent's work is on screen.
+
+```markdown
+---
+description: Investigate a failure
+agent: general
+subagent: true
+---
+Investigate $ARGUMENTS and report what you found.
+```
 
 ## Permissions
 
