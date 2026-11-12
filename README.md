@@ -51,6 +51,8 @@ recode completions bash   # also: zsh, fish, powershell, elvish
 - **opencode accounts.** `recode auth login opencode` runs the Console device flow and
   refreshes OAuth tokens automatically; paid Zen models use the same credential.
 - **Safe tools.** Typed capabilities with allow/ask/deny rules and path sandboxing.
+- **Bring your own layout.** opencode's `agent(s)/**/*.md`, `mode(s)/*.md`, and
+  `command(s)/**/*.md` work as they do upstream, including subagent commands.
 
 ## Workspace
 
@@ -128,6 +130,22 @@ model as `mcp__<server>__<tool>` and use the `mcp` permission key:
   }
 }
 ```
+
+### Agents, commands, and themes
+
+Markdown files become agents and slash commands, using opencode's layout:
+
+```
+.recode/agent/reviewer.md      # an agent, frontmatter + system prompt
+.recode/command/review.md      # a slash command, frontmatter + prompt template
+```
+
+The command template takes `$ARGUMENTS`, positional `$1`…`$N`, and inline
+shell with ``!`command` ``. A command marked `subagent: true` runs in a child
+session instead of the current one. The terminal UI has five colour themes
+(`recode`, `tokyonight`, `gruvbox`, `catppuccin`, `solarized`), selected by
+the `theme` config key, by `recode tui --theme`, or by `/theme <name>`.
+See `docs/config.md` for the details.
 
 ## Credits
 
