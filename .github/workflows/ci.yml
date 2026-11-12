@@ -32,3 +32,9 @@ jobs:
       - name: Build release
         if: matrix.os == 'ubuntu-latest'
         run: cargo build --release --bin recode
+      - name: Benchmark
+        if: matrix.os == 'ubuntu-latest'
+        shell: pwsh
+        run: |
+          pwsh script/bench.ps1 -Runs 20 | Tee-Object -FilePath bench.txt
+          Get-Content bench.txt | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append

@@ -8,11 +8,11 @@ Last updated: 2026-11-09 (verified release build + benchmark)
 OpenCode Zen free tier, models.dev, Console OAuth, and markdown agents/commands.
 
 ```
-cargo test --workspace       131 passed, 0 failed
+cargo test --workspace       136 passed, 0 failed
 cargo clippy --workspace --all-targets -- -D warnings   clean
 cargo fmt --all --check       clean
-cargo build --release --locked --bin recode             verified (27m58s, jobs=1)
-startup                      mean 29.5 ms, p50 28.9 ms, p95 32.5 ms (20 runs)
+cargo build --release --locked --bin recode             verified (23m13s, jobs=1)
+startup                      mean 37.8 ms, p50 35.4 ms, p95 50.5 ms (30 runs)
 binary                       18.3 MiB
 ```
 
@@ -115,11 +115,17 @@ binary                       18.3 MiB
   child's transcript; the TUI switches to the child so the subagent's work is on screen.
   Verified with `recode run "/sub the bug"` (the child session carries `parentId` and stays
   out of `sessions list`) and in the ConPTY smoke test.
-- Release benchmark: `script/bench.ps1 -Runs 20` on the release binary measured startup at
-  mean 29.5 ms / p50 28.9 ms / p95 32.5 ms and an 18.3 MiB executable; the release build
-  took 27m58s with `CARGO_BUILD_JOBS=1`. The release binary also passed the markdown
-  agent/command mock-provider run, the ConPTY TUI smoke (`--slash`, `--theme gruvbox`),
-  and the attached TUI smoke (`script/attach_smoke.ps1`).
+- Parser robustness: the frontmatter parser, the JSONC configuration loader, the
+  server-sent event parser, and the editor's completion parsers are fed a deterministic
+  stream of pseudo-random bytes; they answer instead of panicking (`crates/recode-core/tests/parsers.rs`
+  plus unit tests in the client and the TUI).
+- Release benchmark: `script/bench.ps1 -Runs 30` on the release binary measured startup at
+  mean 37.8 ms / p50 35.4 ms / p95 50.5 ms and an 18.3 MiB executable; the release build
+  took 23m13s with `CARGO_BUILD_JOBS=1`. The numbers move by a few milliseconds between
+  runs, so treat them as a range rather than a hard number. The release binary also
+  passed the markdown agent/command mock-provider run, the ConPTY TUI smoke (`--slash`,
+  `--theme gruvbox`, the `/sub` subagent command), and the attached TUI smoke
+  (`script/attach_smoke.ps1`).
 - Formatters: an opt-in formatter command runs after a successful edit and rewrites the
   file (unit test with a Python one-liner); built-ins stay disabled until enabled.
 - JSON output: `recode run --format json` streams one object per line (`delta`, `event`,
@@ -171,8 +177,7 @@ binary                       18.3 MiB
 
 1. M9 parity: diff the CLI/config/TUI surface against the upstream fork and close gaps
    (keybinds, share).
-2. Wire the benchmark into CI and track regressions.
-3. Signed release binaries and parser fuzz tests.
+2. Signed release binaries (needs a signing key) and more parser fuzzing.
 
 ## Known issues / gotchas
 

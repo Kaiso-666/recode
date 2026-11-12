@@ -1403,4 +1403,24 @@ mod tests {
         assert_eq!(slash_token("/review src/main.rs", 8), None);
         assert_eq!(slash_token("text /mo", 8), None);
     }
+
+    #[test]
+    fn survives_random_input() {
+        // The editor hands the parser whatever the user typed.
+        let mut state = 0xD1B5_4A32_D192_ED03_u64;
+        for _ in 0..512 {
+            let mut bytes = Vec::new();
+            for _ in 0..32 {
+                state ^= state << 13;
+                state ^= state >> 7;
+                state ^= state << 17;
+                bytes.push((state & 0xff) as u8);
+            }
+            let line = String::from_utf8_lossy(&bytes).into_owned();
+            for cursor in 0..=line.chars().count() {
+                let _ = slash_token(&line, cursor);
+                let _ = at_token(&line, cursor);
+            }
+        }
+    }
 }

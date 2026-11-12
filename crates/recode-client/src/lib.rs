@@ -591,4 +591,22 @@ mod tests {
         assert_eq!(sse_data(": keep-alive\n\n"), None);
         assert_eq!(sse_data("event: recode\n\n"), None);
     }
+
+    #[test]
+    fn survives_random_event_blocks() {
+        // The stream comes from the server, so a malformed block must be
+        // ignored rather than panic.
+        let mut state = 0x9E37_79B9_7F4A_7C15_u64;
+        for _ in 0..512 {
+            let mut bytes = Vec::new();
+            for _ in 0..64 {
+                state ^= state << 13;
+                state ^= state >> 7;
+                state ^= state << 17;
+                bytes.push((state & 0xff) as u8);
+            }
+            let block = String::from_utf8_lossy(&bytes).into_owned();
+            let _ = sse_data(&block);
+        }
+    }
 }
