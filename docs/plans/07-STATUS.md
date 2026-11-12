@@ -11,9 +11,9 @@ OpenCode Zen free tier, models.dev, Console OAuth, and markdown agents/commands.
 cargo test --workspace       129 passed, 0 failed
 cargo clippy --workspace --all-targets -- -D warnings   clean
 cargo fmt --all --check       clean
-cargo build --release --locked --bin recode             verified (20m07s, jobs=1)
-startup                      mean 39.1 ms, p50 38.6 ms, p95 46.7 ms (20 runs)
-binary                       18.0 MiB
+cargo build --release --locked --bin recode             verified (27m58s, jobs=1)
+startup                      mean 29.5 ms, p50 28.9 ms, p95 32.5 ms (20 runs)
+binary                       18.3 MiB
 ```
 
 ### Milestones
@@ -111,9 +111,10 @@ binary                       18.0 MiB
   `/theme <name>` while the UI is open. The TUI smoke test ran with `--theme gruvbox`;
   unit tests cover the lookup and the config key.
 - Release benchmark: `script/bench.ps1 -Runs 20` on the release binary measured startup at
-  mean 39.1 ms / p50 38.6 ms / p95 46.7 ms and an 18.0 MiB executable; the release build
-  took 20m07s with `CARGO_BUILD_JOBS=1`. The release binary also passed the markdown
-  agent/command mock-provider run and the ConPTY TUI smoke (`--slash`).
+  mean 29.5 ms / p50 28.9 ms / p95 32.5 ms and an 18.3 MiB executable; the release build
+  took 27m58s with `CARGO_BUILD_JOBS=1`. The release binary also passed the markdown
+  agent/command mock-provider run, the ConPTY TUI smoke (`--slash`, `--theme gruvbox`),
+  and the attached TUI smoke (`script/attach_smoke.ps1`).
 - Formatters: an opt-in formatter command runs after a successful edit and rewrites the
   file (unit test with a Python one-liner); built-ins stay disabled until enabled.
 - JSON output: `recode run --format json` streams one object per line (`delta`, `event`,
@@ -164,7 +165,9 @@ binary                       18.0 MiB
 ## Next actions (in order)
 
 1. M9 parity: diff the CLI/config/TUI surface against the upstream fork and close gaps
-   (themes/keybinds, share, subagent commands).
+   (keybinds, share, subagent commands).
+   - Subagent commands: a markdown command with `subagent: true` should run in a child
+     session (parent, agent, and model from the command) instead of being rejected.
 2. Wire the benchmark into CI and track regressions.
 3. Signed release binaries and parser fuzz tests.
 
