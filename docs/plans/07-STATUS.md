@@ -11,8 +11,8 @@ OpenCode Zen free tier, models.dev, Console OAuth, and markdown agents/commands.
 cargo test --workspace       136 passed, 0 failed
 cargo clippy --workspace --all-targets -- -D warnings   clean
 cargo fmt --all --check       clean
-cargo build --release --locked --bin recode             verified (23m13s, jobs=1)
-startup                      mean 37.8 ms, p50 35.4 ms, p95 50.5 ms (30 runs)
+cargo build --release --locked --bin recode             verified (26m04s, jobs=1)
+startup                      30-100 ms mean, depending on the machine's load
 binary                       18.3 MiB
 ```
 
@@ -120,12 +120,12 @@ binary                       18.3 MiB
   stream of pseudo-random bytes; they answer instead of panicking (`crates/recode-core/tests/parsers.rs`
   plus unit tests in the client and the TUI).
 - Release benchmark: `script/bench.ps1 -Runs 30` on the release binary measured startup at
-  mean 37.8 ms / p50 35.4 ms / p95 50.5 ms and an 18.3 MiB executable; the release build
-  took 23m13s with `CARGO_BUILD_JOBS=1`. The numbers move by a few milliseconds between
-  runs, so treat them as a range rather than a hard number. The release binary also
-  passed the markdown agent/command mock-provider run, the ConPTY TUI smoke (`--slash`,
-  `--theme gruvbox`, the `/sub` subagent command), and the attached TUI smoke
-  (`script/attach_smoke.ps1`).
+  30-100 ms mean and an 18.3 MiB executable; the release build took 26m04s with
+  `CARGO_BUILD_JOBS=1`. The startup number moves with the machine's load — this box runs
+  two agent sessions — so the CI step (the same script on a quiet runner, published in the
+  job summary) is the comparable figure. The release binary passed the markdown
+  agent/command mock-provider run, the ConPTY TUI smoke (`--slash`, `--theme gruvbox`, the
+  `/sub` subagent command), and the attached TUI smoke (`script/attach_smoke.ps1`).
 - Formatters: an opt-in formatter command runs after a successful edit and rewrites the
   file (unit test with a Python one-liner); built-ins stay disabled until enabled.
 - JSON output: `recode run --format json` streams one object per line (`delta`, `event`,
